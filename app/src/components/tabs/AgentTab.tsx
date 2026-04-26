@@ -65,7 +65,13 @@ export function AgentTab() {
     }
   }, [recorder, sessionId]);
 
+  const lastToggleMs = useRef(0);
+
   const handleToggle = useCallback(() => {
+    const now = Date.now();
+    if (now - lastToggleMs.current < 600) return;
+    lastToggleMs.current = now;
+
     if (recorder.state === "idle") {
       recorder.start().catch(console.error);
     } else if (recorder.state === "recording") {

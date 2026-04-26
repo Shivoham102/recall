@@ -30,15 +30,64 @@ body { background: transparent; overflow: hidden; }
    ORB WINDOW
 ═══════════════════════════════════════════ */
 .orb-root {
+  position: relative;
   width: 100vw;
   height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   background: transparent;
-  /* transparent area is fully click-through */
   pointer-events: none;
   user-select: none;
+}
+
+/* ── Circular ambient glow ──────────────────
+   Fills the window (inset:0) but border-radius:50%
+   clips the painted area to a circle, so the four
+   window corners are always fully transparent.
+   Animated with transform:scale() — no filter,
+   no box-shadow overflow past the window edge.
+─────────────────────────────────────────── */
+.orb-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.orb-glow--idle {
+  background: radial-gradient(circle, rgba(80,140,255,0.42) 0%, rgba(50,100,230,0.18) 45%, transparent 72%);
+  animation: glow-breathe 4.5s ease-in-out infinite;
+}
+.orb-glow--recording {
+  background: radial-gradient(circle, rgba(240,50,80,0.58) 0%, rgba(200,20,55,0.24) 45%, transparent 72%);
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+.orb-glow--speaking {
+  background: radial-gradient(circle, rgba(20,200,120,0.52) 0%, rgba(10,165,95,0.22) 45%, transparent 72%);
+  animation: glow-speak 1.1s ease-in-out infinite alternate;
+}
+.orb-glow--processing {
+  background: radial-gradient(circle, rgba(255,170,0,0.45) 0%, rgba(220,110,0,0.18) 45%, transparent 72%);
+  animation: glow-breathe 2s ease-in-out infinite;
+}
+.orb-glow--error {
+  background: radial-gradient(circle, rgba(255,120,0,0.65) 0%, rgba(220,60,0,0.28) 45%, transparent 72%);
+  animation: glow-pulse 0.5s ease-in-out infinite;
+}
+
+@keyframes glow-breathe {
+  0%, 100% { transform: scale(0.88); }
+  50%       { transform: scale(1.00); }
+}
+@keyframes glow-pulse {
+  0%, 100% { transform: scale(0.82); }
+  50%       { transform: scale(1.00); }
+}
+@keyframes glow-speak {
+  from { transform: scale(0.80); }
+  to   { transform: scale(1.00); }
 }
 
 /* ── Core sphere ── */
@@ -50,7 +99,8 @@ body { background: transparent; overflow: hidden; }
   overflow: hidden;
   cursor: pointer;
   pointer-events: auto;
-  transition: background 0.7s ease, box-shadow 0.7s ease;
+  z-index: 1;
+  transition: background 0.7s ease;
 }
 
 /* Idle — deep sapphire, cool glass */
@@ -59,12 +109,6 @@ body { background: transparent; overflow: hidden; }
     radial-gradient(circle at 33% 28%, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.28) 9%, transparent 28%),
     radial-gradient(circle at 68% 72%, rgba(80,140,255,0.22) 0%, transparent 45%),
     radial-gradient(circle at center, #b8d4ff 0%, #3366ee 28%, #1122bb 55%, #05081e 100%);
-  box-shadow:
-    0 0 22px  rgba(80,140,255,0.55),
-    0 0 48px  rgba(40,100,230,0.28),
-    0 0 90px  rgba(20,60,200,0.14),
-    0 0 140px rgba(60,110,255,0.07);
-  animation: orb-idle 4.5s ease-in-out infinite;
 }
 
 /* Recording — ruby, warm ember */
@@ -73,12 +117,6 @@ body { background: transparent; overflow: hidden; }
     radial-gradient(circle at 33% 28%, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.3) 9%, transparent 28%),
     radial-gradient(circle at 68% 72%, rgba(255,100,80,0.22) 0%, transparent 45%),
     radial-gradient(circle at center, #ffbbcc 0%, #dd1144 28%, #991133 55%, #130006 100%);
-  box-shadow:
-    0 0 22px  rgba(240,50,80,0.7),
-    0 0 48px  rgba(200,20,55,0.38),
-    0 0 90px  rgba(160,0,40,0.2),
-    0 0 140px rgba(220,40,70,0.08);
-  animation: orb-record 2s ease-in-out infinite;
 }
 
 /* Speaking — jade emerald */
@@ -87,12 +125,6 @@ body { background: transparent; overflow: hidden; }
     radial-gradient(circle at 33% 28%, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.3) 9%, transparent 28%),
     radial-gradient(circle at 68% 72%, rgba(60,220,150,0.22) 0%, transparent 45%),
     radial-gradient(circle at center, #aaffdd 0%, #18bb80 28%, #0d7a55 55%, #020e09 100%);
-  box-shadow:
-    0 0 22px  rgba(20,200,120,0.6),
-    0 0 48px  rgba(10,165,95,0.32),
-    0 0 90px  rgba(5,120,70,0.16),
-    0 0 140px rgba(15,190,110,0.07);
-  animation: orb-speak 1.1s ease-in-out infinite alternate;
 }
 
 /* Processing — warm gold */
@@ -100,11 +132,6 @@ body { background: transparent; overflow: hidden; }
   background:
     radial-gradient(circle at 33% 28%, rgba(255,255,255,0.88) 0%, rgba(255,255,255,0.3) 9%, transparent 28%),
     radial-gradient(circle at center, #ffeebb 0%, #ffaa00 28%, #dd6600 55%, #110800 100%);
-  box-shadow:
-    0 0 22px  rgba(255,170,0,0.65),
-    0 0 48px  rgba(220,110,0,0.35),
-    0 0 90px  rgba(180,70,0,0.18);
-  animation: orb-idle 2s ease-in-out infinite;
 }
 
 /* Error — amber flash */
@@ -112,15 +139,11 @@ body { background: transparent; overflow: hidden; }
   background:
     radial-gradient(circle at 33% 28%, rgba(255,255,255,0.85) 0%, transparent 22%),
     radial-gradient(circle at center, #ffdd99 0%, #ff7700 35%, #cc3300 65%, #120400 100%);
-  box-shadow:
-    0 0 28px rgba(255,120,0,0.8),
-    0 0 60px rgba(220,60,0,0.4);
-  animation: orb-error 0.5s ease-in-out infinite;
 }
 
 /* ── Glass layers (clipped inside sphere by overflow:hidden) ── */
 
-/* Diagonal shimmer sweep — like light catching a gem */
+/* Diagonal shimmer sweep */
 .orb-shimmer {
   position: absolute;
   inset: 0;
@@ -135,55 +158,27 @@ body { background: transparent; overflow: hidden; }
   pointer-events: none;
 }
 
-/* Primary specular — bright glass highlight at top-left */
+/* Primary specular highlight */
 .orb-specular {
   position: absolute;
-  top: 9%; left: 15%;
-  width: 32%; height: 24%;
+  top: 7%; left: 13%;
+  width: 36%; height: 26%;
   border-radius: 50%;
-  background: radial-gradient(ellipse, rgba(255,255,255,0.75) 0%, transparent 100%);
-  filter: blur(2.5px);
+  background: radial-gradient(ellipse at 40% 40%, rgba(255,255,255,0.82) 0%, rgba(255,255,255,0.3) 35%, transparent 75%);
   pointer-events: none;
 }
 
-/* Secondary sheen — subtle bottom-right reflection for depth */
+/* Secondary bottom-right sheen */
 .orb-scanlines {
   position: absolute;
-  bottom: 9%; right: 12%;
-  width: 28%; height: 18%;
+  bottom: 8%; right: 10%;
+  width: 32%; height: 20%;
   border-radius: 50%;
-  background: radial-gradient(ellipse, rgba(255,255,255,0.1) 0%, transparent 100%);
-  filter: blur(3px);
+  background: radial-gradient(ellipse, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 50%, transparent 100%);
   pointer-events: none;
 }
 
-/* ── Keyframes ── */
-
-/* Idle: only the glow breathes — no movement */
-@keyframes orb-idle {
-  0%, 100% { filter: brightness(1); }
-  50%       { filter: brightness(1.18); }
-}
-
-/* Recording: glow swells gently */
-@keyframes orb-record {
-  0%, 100% { filter: brightness(1);    box-shadow: 0 0 22px rgba(240,50,80,0.7),  0 0 48px rgba(200,20,55,0.38),  0 0 90px rgba(160,0,40,0.2); }
-  50%       { filter: brightness(1.15); box-shadow: 0 0 32px rgba(240,50,80,0.95), 0 0 70px rgba(200,20,55,0.55), 0 0 120px rgba(160,0,40,0.3); }
-}
-
-/* Speaking: glow pulses with voice rhythm */
-@keyframes orb-speak {
-  from { filter: brightness(1);    box-shadow: 0 0 22px rgba(20,200,120,0.6),  0 0 48px rgba(10,165,95,0.32),  0 0 90px rgba(5,120,70,0.16); }
-  to   { filter: brightness(1.2);  box-shadow: 0 0 34px rgba(20,200,120,0.88), 0 0 68px rgba(10,165,95,0.52), 0 0 115px rgba(5,120,70,0.28); }
-}
-
-/* Error: flash */
-@keyframes orb-error {
-  0%, 100% { filter: brightness(1);   }
-  50%       { filter: brightness(1.3); }
-}
-
-/* Shimmer sweep */
+/* Shimmer sweep keyframe */
 @keyframes orb-shimmer {
   0%, 100% { transform: translateX(-130%); opacity: 0; }
   30%       { opacity: 1; }

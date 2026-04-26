@@ -15,6 +15,8 @@ export function OrbWindow() {
 
   // Keep a stable ref to the toggle so the hotkey handler never goes stale
   const handleToggleRef = useRef<() => void>(() => {});
+  // Debounce: ignore repeat-fires when keys are held down
+  const lastToggleMs = useRef(0);
 
   const handleStop = useCallback(async () => {
     try {
@@ -45,6 +47,10 @@ export function OrbWindow() {
   }, [recorder, sessionId, appWindow]);
 
   const handleToggle = useCallback(() => {
+    const now = Date.now();
+    if (now - lastToggleMs.current < 600) return;
+    lastToggleMs.current = now;
+
     if (recorder.state === "idle") {
       appWindow.show()
         .then(() => appWindow.setFocus())
@@ -76,6 +82,7 @@ export function OrbWindow() {
 
   return (
     <div className="orb-root">
+      <div className={`orb-glow orb-glow--${orbState}`} />
       <div className={`orb-core orb-core--${orbState}`} onClick={handleToggle}>
         <div className="orb-shimmer" />
         <div className="orb-specular" />
