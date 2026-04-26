@@ -26,18 +26,20 @@ def store_item(
     content: str,
     intent_type: str,
     due_hint: str | None = None,
+    due_at: str | None = None,
+    reminder_text: str | None = None,
 ) -> str:
     vec = embed(content)
-    result = (
-        get_db()
-        .table("recall_items")
-        .insert({
-            "content": content,
-            "embedding": vec,
-            "intent_type": intent_type,
-            "due_hint": due_hint,
-            "status": "open",
-        })
-        .execute()
-    )
+    row: dict = {
+        "content": content,
+        "embedding": vec,
+        "intent_type": intent_type,
+        "due_hint": due_hint,
+        "status": "open",
+    }
+    if due_at:
+        row["due_at"] = due_at
+    if reminder_text:
+        row["reminder_text"] = reminder_text
+    result = get_db().table("recall_items").insert(row).execute()
     return result.data[0]["id"]

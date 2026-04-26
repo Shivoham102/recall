@@ -3,9 +3,10 @@ import { listen } from "@tauri-apps/api/event";
 import { emit } from "@tauri-apps/api/event";
 import { capture, playAudio, getOrCreateSessionId } from "../../services/api";
 import { useRecorder } from "../../hooks/useRecorder";
+import { scheduleReminder } from "../../services/reminderScheduler";
 
 interface Turn {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   text: string;
   intentType?: string;
 }
@@ -27,7 +28,6 @@ export function AgentTab() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const recorder = useRecorder();
 
-  // Listen for voice turns from either orb (floating or embedded)
   useEffect(() => {
     const unlisten = listen<{ transcript: string; response_text: string; intent_type: string }>(
       "recall:new-turn",
@@ -43,6 +43,30 @@ export function AgentTab() {
   }, []);
 
   useEffect(() => {
+    const unlisten = listen<{ items: { id: string; content: string }[] }>(
+      "recall:reminders-missed",
+      (e) => {
+        const list = e.payload.items.map((i) => i.content).join(", ");
+        setTurns((prev) => [
+          ...prev,
+          { role: "system", text: `${e.payload.items.length} reminder(s) were missed while the app was closed: ${list}` },
+        ]);
+      },
+    );
+    return () => { unlisten.then((f) => f()); };
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen("recall:reminder-failed", () => {
+      setTurns((prev) => [
+        ...prev,
+        { role: "system", text: "A reminder failed to deliver after 3 attempts. Check your Reminders tab." },
+      ]);
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, []);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns]);
 
@@ -52,6 +76,9 @@ export function AgentTab() {
       const resp = await capture(blob, sessionId);
       recorder.setSpeaking();
       playAudio(resp.audio_base64, () => recorder.reset());
+      if (resp.due_at && resp.item_id) {
+        scheduleReminder(resp.item_id, resp.due_at);
+      }
       await emit("recall:new-turn", {
         transcript: resp.transcript,
         response_text: resp.response_text,

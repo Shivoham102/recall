@@ -1,4 +1,8 @@
-use tauri::{LogicalPosition, Manager};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    LogicalPosition, Manager,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -14,13 +18,69 @@ pub fn run() {
                     let sf = monitor.scale_factor();
                     let lw = size.width as f64 / sf;
                     let lh = size.height as f64 / sf;
-                    // 140 = orb window width/height, 80 = clearance above taskbar
                     let _ = orb.set_position(LogicalPosition::new(
                         lw / 2.0 - 70.0,
                         lh - 140.0 - 80.0,
                     ));
                 }
             }
+
+            // Hide to tray on close instead of quitting
+            if let Some(main) = app.get_webview_window("main") {
+                let win = main.clone();
+                main.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = win.hide();
+                    }
+                });
+            }
+
+            // System tray
+            let show = MenuItem::with_id(app, "show", "Show Recall", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+
+            let icon = app
+                .default_window_icon()
+                .cloned()
+                .ok_or("no window icon configured")?;
+
+            TrayIconBuilder::new()
+                .icon(icon)
+                .menu(&menu)
+                .tooltip("Recall")
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            if window.is_visible().unwrap_or(false) {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                })
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(app)?;
+
             Ok(())
         })
         .run(tauri::generate_context!())

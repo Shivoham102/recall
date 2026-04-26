@@ -16,6 +16,14 @@ export interface CaptureResponse {
   audio_base64: string;
   intent_type: string;
   item_id: string | null;
+  due_at: string | null;
+}
+
+export interface PendingReminder {
+  id: string;
+  content: string;
+  intent_type: string;
+  due_at: string;
 }
 
 export async function capture(
@@ -74,6 +82,25 @@ export function playAudio(base64mp3: string, onEnd?: () => void): void {
   const audio = new Audio(`data:audio/mpeg;base64,${base64mp3}`);
   if (onEnd) audio.addEventListener("ended", onEnd);
   audio.play().catch(console.error);
+}
+
+export interface DueReminder {
+  id: string;
+  content: string;
+  intent_type: string;
+  audio_base64: string;
+}
+
+export async function getPendingReminders(): Promise<PendingReminder[]> {
+  const res = await fetch(`${BASE}/reminders/pending`);
+  if (!res.ok) throw new Error(`reminders/pending failed: ${res.status}`);
+  return res.json();
+}
+
+export async function checkDueReminders(): Promise<DueReminder[]> {
+  const res = await fetch(`${BASE}/reminders/due`);
+  if (!res.ok) throw new Error(`reminders/due failed: ${res.status}`);
+  return res.json();
 }
 
 export function getOrCreateSessionId(): string {

@@ -29,6 +29,6 @@ async def query(req: QueryRequest):
     metadata, spoken = call_agent(req.session_id, req.text, rag_context)
     return {
         "response_text": spoken,
-        "audio_base64": synthesize(spoken),
+        "audio_base64": await synthesize(spoken),
         "items": similar,
     }

@@ -1,9 +1,10 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AgentTab } from "./tabs/AgentTab";
 import { TasksTab } from "./tabs/TasksTab";
 import { TranscriptsTab } from "./tabs/TranscriptsTab";
 import { RemindersTab } from "./tabs/RemindersTab";
+import { loadPendingReminders } from "../services/reminderScheduler";
 
 type Tab = "agent" | "tasks" | "transcripts" | "reminders";
 
@@ -18,9 +19,24 @@ export function MainApp() {
   const [tab, setTab] = useState<Tab>("agent");
   const appWindow = useRef(getCurrentWindow()).current;
 
+  useEffect(() => {
+    // Load on startup — fires immediately for past-due, schedules the rest
+    loadPendingReminders();
+
+    // Re-check on focus/resume to catch timers that slept through hibernate
+    const onFocus = () => loadPendingReminders();
+    const onVisibility = () => { if (document.visibilityState === "visible") loadPendingReminders(); };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
   return (
     <div className="main-app">
-      {/* Titlebar */}
       <div className="titlebar">
         <span className="titlebar__logo" data-tauri-drag-region>
           <span className="titlebar__dot" />
@@ -40,11 +56,11 @@ export function MainApp() {
         </div>
         <div className="titlebar__controls">
           <button className="wm-btn" onClick={() => appWindow.minimize()} title="Minimize">─</button>
-          <button className="wm-btn wm-btn--close" onClick={() => appWindow.hide()} title="Close">✕</button>
+          <button className="wm-btn" onClick={() => appWindow.toggleMaximize()} title="Maximize">⬜</button>
+          <button className="wm-btn wm-btn--close" onClick={() => appWindow.hide()} title="Hide to tray">✕</button>
         </div>
       </div>
 
-      {/* Content */}
       <div className="main-content">
         {tab === "agent"       && <AgentTab />}
         {tab === "tasks"       && <TasksTab />}

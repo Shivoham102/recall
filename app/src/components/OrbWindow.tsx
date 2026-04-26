@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useCallback, useState } from "react";
 import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
-import { emit } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useRecorder } from "../hooks/useRecorder";
 import { capture, playAudio, getOrCreateSessionId } from "../services/api";
+import { scheduleReminder } from "../services/reminderScheduler";
 
 const HOTKEY = "Ctrl+Shift+Space";
 
@@ -28,6 +29,10 @@ export function OrbWindow() {
         recorder.reset();
         await appWindow.hide();
       });
+
+      if (resp.due_at && resp.item_id) {
+        scheduleReminder(resp.item_id, resp.due_at);
+      }
 
       await emit("recall:new-turn", {
         transcript: resp.transcript,
@@ -77,6 +82,22 @@ export function OrbWindow() {
     setup().catch(console.error);
     return () => { unregister(HOTKEY).catch(() => {}); };
   }, []);
+
+  useEffect(() => {
+    const unlisten = listen<{ audio_base64: string; content: string }>(
+      "recall:reminder",
+      async (e) => {
+        if (recorder.state !== "idle") return;
+        recorder.setSpeaking();
+        await appWindow.show();
+        playAudio(e.payload.audio_base64, async () => {
+          recorder.reset();
+          await appWindow.hide();
+        });
+      },
+    );
+    return () => { unlisten.then((f) => f()); };
+  }, [recorder, appWindow]);
 
   const orbState = error ? "error" : recorder.state;
 

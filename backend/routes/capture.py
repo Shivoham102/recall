@@ -1,3 +1,4 @@
+import dateparser
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from stt import transcribe
 from rag import retrieve_similar, store_item
@@ -15,6 +16,16 @@ def _fmt_context(items: list[dict]) -> str:
         f"(status: {i['status']}, created: {i['created_at'][:10]})"
         for i in items
     )
+
+
+def _parse_due_at(due_hint: str | None) -> str | None:
+    if not due_hint:
+        return None
+    parsed = dateparser.parse(
+        due_hint,
+        settings={"PREFER_DATES_FROM": "future", "RETURN_AS_TIMEZONE_AWARE": False},
+    )
+    return parsed.isoformat() if parsed else None
 
 
 @router.post("/capture")
@@ -36,18 +47,24 @@ async def capture(
     rag_context = _fmt_context(similar)
     metadata, spoken = call_agent(session_id, transcript, rag_context)
 
+    # Hoist due_at so it can be returned even when should_store is false
+    due_at = _parse_due_at(metadata.get("due_hint"))
+
     item_id = None
     if metadata.get("should_store"):
         item_id = store_item(
             content=transcript,
             intent_type=metadata.get("intent_type", "note"),
             due_hint=metadata.get("due_hint"),
+            due_at=due_at,
+            reminder_text=metadata.get("reminder_text"),
         )
 
     return {
         "transcript": transcript,
         "response_text": spoken,
-        "audio_base64": synthesize(spoken),
+        "audio_base64": await synthesize(spoken),
         "intent_type": metadata.get("intent_type"),
         "item_id": item_id,
+        "due_at": due_at,
     }
