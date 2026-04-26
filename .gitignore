@@ -1,0 +1,16 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+backend/.venv/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+node_modules/
+app/dist/
+app/src-tauri/target/
+app/src-tauri/gen/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:v2.tauri.app)",
+      "WebFetch(domain:supabase.com)",
+      "Skill(claude-api)",
+      "Bash(npm --version)",
+      "Bash(where node *)",
+      "Bash(where npm *)",
+      "Bash(npm install *)",
+      "Bash(pnpm --version)",
+      "Bash(pnpm install *)",
+      "Bash(pnpm add *)",
+      "Bash(python -m venv .venv)"
+    ]
+  }
+}
