@@ -390,6 +390,29 @@ body { background: transparent; overflow: hidden; }
 .turn--user      { align-self: flex-end; background: rgba(0,229,255,0.08); border: 1px solid rgba(0,229,255,0.18); }
 .turn--assistant { align-self: flex-start; background: rgba(255,255,255,0.04); border: 1px solid var(--border); }
 .turn--system    { align-self: center; background: rgba(255,204,0,0.07); border: 1px solid rgba(255,204,0,0.25); color: #ffcc00; font-size: 0.78rem; text-align: center; }
+.turn--pending   { opacity: 0.7; }
+
+.agent-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.45);
+  cursor: pointer;
+  padding: 1px 0;
+}
+.agent-step:hover { color: rgba(255,255,255,0.65); }
+.agent-step__label { flex: 1; font-family: monospace; }
+.agent-step__tag   { font-size: 0.65rem; opacity: 0.55; white-space: nowrap; }
 
 .turn__badge {
   font-size: 10px;

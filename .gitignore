@@ -14,3 +14,7 @@ app/src-tauri/target/
 app/src-tauri/gen/
 .DS_Store
 Thumbs.db
+
+# Google OAuth credentials — never commit these
+backend/credentials.json
+backend/token.json

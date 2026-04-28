@@ -1,5 +1,5 @@
 import { emit } from "@tauri-apps/api/event";
-import { checkDueReminders, getPendingReminders } from "./api";
+import { checkDueReminders, getPendingReminders, dismissReminders } from "./api";
 
 const MISSED_THRESHOLD_MS = 60 * 60 * 1000; // reminders older than 1h on startup = missed
 const MAX_RETRIES = 3;
@@ -87,6 +87,7 @@ export async function loadPendingReminders(): Promise<void> {
 
     if (missed.length > 0) {
       await emit("recall:reminders-missed", { items: missed }).catch(() => {});
+      await dismissReminders(missed.map((m) => m.id)).catch(() => {});
     }
   } catch (e) {
     console.error("Failed to load pending reminders:", e);

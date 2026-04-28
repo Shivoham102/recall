@@ -1,5 +1,54 @@
 const BASE = "http://localhost:8000";
 
+export type StreamEvent =
+  | { type: "transcript"; text: string }
+  | { type: "thinking"; text: string }
+  | { type: "tool_call"; name: string; input: unknown }
+  | { type: "tool_result"; name: string; summary: string }
+  | { type: "ack_audio"; audio_base64: string; text: string }
+  | { type: "spoken"; text: string }
+  | { type: "metadata"; intent_type: string; should_store: boolean; due_hint: string | null; reminder_text: string | null }
+  | { type: "stored"; item_id: string | null; due_at: string | null }
+  | { type: "audio"; audio_base64: string }
+  | { type: "error"; message: string }
+  | { type: "done" };
+
+export async function* captureStream(
+  audioBlob: Blob,
+  sessionId: string,
+): AsyncGenerator<StreamEvent> {
+  const form = new FormData();
+  form.append("audio", audioBlob, "recording.webm");
+  form.append("session_id", sessionId);
+
+  const res = await fetch(`${BASE}/capture/stream`, { method: "POST", body: form });
+  if (!res.ok || !res.body) {
+    const detail = await res.text().catch(() => String(res.status));
+    throw new Error(`capture/stream failed: ${detail}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      if (part.startsWith("data: ")) {
+        try {
+          yield JSON.parse(part.slice(6)) as StreamEvent;
+        } catch {
+          // skip malformed event
+        }
+      }
+    }
+  }
+}
+
 export interface RecallItem {
   id: string;
   content: string;
@@ -101,6 +150,15 @@ export async function checkDueReminders(): Promise<DueReminder[]> {
   const res = await fetch(`${BASE}/reminders/due`);
   if (!res.ok) throw new Error(`reminders/due failed: ${res.status}`);
   return res.json();
+}
+
+export async function dismissReminders(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await fetch(`${BASE}/reminders/dismiss`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
 }
 
 export function getOrCreateSessionId(): string {

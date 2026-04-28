@@ -1,9 +1,25 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter
+from pydantic import BaseModel
 from db import get_db
 from tts import synthesize
 
 router = APIRouter()
+
+
+class DismissRequest(BaseModel):
+    ids: list[str]
+
+
+@router.post("/reminders/dismiss")
+def dismiss_reminders(body: DismissRequest):
+    """Mark a list of reminder items as reminded without delivering audio. Used for missed reminders on startup."""
+    if not body.ids:
+        return {"dismissed": 0}
+    now = datetime.now(timezone.utc).isoformat()
+    for item_id in body.ids:
+        get_db().table("recall_items").update({"reminded_at": now}).eq("id", item_id).execute()
+    return {"dismissed": len(body.ids)}
 
 
 @router.get("/reminders/pending")

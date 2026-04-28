@@ -6,6 +6,7 @@ from routes.capture import router as capture_router
 from routes.query import router as query_router
 from routes.items import router as items_router
 from routes.reminders import router as reminders_router
+from routes.agent_stream import router as agent_stream_router
 from stt import get_model
 
 load_dotenv()
@@ -23,6 +24,7 @@ app.include_router(capture_router)
 app.include_router(query_router)
 app.include_router(items_router)
 app.include_router(reminders_router)
+app.include_router(agent_stream_router)
 
 
 @app.on_event("startup")

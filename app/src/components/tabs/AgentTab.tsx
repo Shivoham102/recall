@@ -1,14 +1,22 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { emit } from "@tauri-apps/api/event";
-import { capture, playAudio, getOrCreateSessionId } from "../../services/api";
+import { captureStream, playAudio, getOrCreateSessionId } from "../../services/api";
 import { useRecorder } from "../../hooks/useRecorder";
 import { scheduleReminder } from "../../services/reminderScheduler";
+
+interface AgentStep {
+  name: string;
+  summary: string;
+  type: "tool_call" | "tool_result";
+}
 
 interface Turn {
   role: "user" | "assistant" | "system";
   text: string;
   intentType?: string;
+  steps?: AgentStep[];
+  pending?: boolean;
 }
 
 const INTENT_COLORS: Record<string, string> = {
@@ -21,6 +29,35 @@ const INTENT_COLORS: Record<string, string> = {
   update:     "#ffcc00",
 };
 
+const TOOL_LABELS: Record<string, string> = {
+  recall_search:      "searching memory",
+  recall_update_item: "updating item",
+  file_create:        "creating file",
+  gmail_draft:        "saving draft",
+  gmail_send:         "sending email",
+  calendar_list:      "checking calendar",
+  calendar_create:    "creating event",
+  classify_intent:    "classifying",
+};
+
+function AgentStepRow({ step }: { step: AgentStep }) {
+  const [expanded, setExpanded] = useState(false);
+  const label = step.type === "tool_call"
+    ? `▸ ${TOOL_LABELS[step.name] ?? step.name}`
+    : `  ${step.summary}`;
+
+  return (
+    <div
+      className="agent-step"
+      onClick={() => setExpanded((e) => !e)}
+      title={expanded ? "collapse" : "expand"}
+    >
+      <span className="agent-step__label">{label}</span>
+      <span className="agent-step__tag">[{step.name}]</span>
+    </div>
+  );
+}
+
 export function AgentTab() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [orbError, setOrbError] = useState(false);
@@ -32,11 +69,7 @@ export function AgentTab() {
     const unlisten = listen<{ transcript: string; response_text: string; intent_type: string }>(
       "recall:new-turn",
       (e) => {
-        setTurns((prev) => [
-          ...prev,
-          { role: "user",      text: e.payload.transcript,    intentType: e.payload.intent_type },
-          { role: "assistant", text: e.payload.response_text },
-        ]);
+        // Only process events from OrbWindow (AgentTab generates its own turns via stream)
       },
     );
     return () => { unlisten.then((f) => f()); };
@@ -71,26 +104,116 @@ export function AgentTab() {
   }, [turns]);
 
   const handleStop = useCallback(async () => {
+    let blob: Blob;
     try {
-      const blob = await recorder.stop();
-      const resp = await capture(blob, sessionId);
-      recorder.setSpeaking();
-      playAudio(resp.audio_base64, () => recorder.reset());
-      if (resp.due_at && resp.item_id) {
-        scheduleReminder(resp.item_id, resp.due_at);
-      }
-      await emit("recall:new-turn", {
-        transcript: resp.transcript,
-        response_text: resp.response_text,
-        intent_type: resp.intent_type,
-        item_id: resp.item_id,
-      });
+      blob = await recorder.stop();
     } catch (e) {
       console.error(e);
       setOrbError(true);
       setTimeout(() => { setOrbError(false); recorder.reset(); }, 2000);
+      return;
     }
-  }, [recorder, sessionId]);
+
+    // Add placeholder user turn immediately; assistant turn with pending state
+    const userTurnIdx = turns.length;
+    setTurns((prev) => [
+      ...prev,
+      { role: "user", text: "…" },
+      { role: "assistant", text: "", steps: [], pending: true },
+    ]);
+
+    const assistantTurnIdx = userTurnIdx + 1;
+
+    try {
+      let transcript = "";
+      let spokenText = "";
+      let intentType: string | undefined;
+      let itemId: string | null = null;
+      let dueAt: string | null = null;
+      let audiob64 = "";
+
+      recorder.setSpeaking();
+
+      for await (const event of captureStream(blob, sessionId)) {
+        if (event.type === "transcript") {
+          transcript = event.text;
+          setTurns((prev) => {
+            const next = [...prev];
+            next[userTurnIdx] = { ...next[userTurnIdx], text: transcript };
+            return next;
+          });
+        } else if (event.type === "tool_call") {
+          setTurns((prev) => {
+            const next = [...prev];
+            const asst = { ...next[assistantTurnIdx] };
+            asst.steps = [...(asst.steps ?? []), { name: event.name, summary: "", type: "tool_call" }];
+            next[assistantTurnIdx] = asst;
+            return next;
+          });
+        } else if (event.type === "tool_result") {
+          setTurns((prev) => {
+            const next = [...prev];
+            const asst = { ...next[assistantTurnIdx] };
+            asst.steps = [...(asst.steps ?? []), { name: event.name, summary: event.summary, type: "tool_result" }];
+            next[assistantTurnIdx] = asst;
+            return next;
+          });
+        } else if (event.type === "spoken") {
+          spokenText = event.text;
+          setTurns((prev) => {
+            const next = [...prev];
+            next[assistantTurnIdx] = { ...next[assistantTurnIdx], text: spokenText };
+            return next;
+          });
+        } else if (event.type === "metadata") {
+          intentType = event.intent_type;
+          setTurns((prev) => {
+            const next = [...prev];
+            next[userTurnIdx] = { ...next[userTurnIdx], intentType };
+            return next;
+          });
+        } else if (event.type === "stored") {
+          itemId = event.item_id;
+          dueAt = event.due_at;
+        } else if (event.type === "ack_audio") {
+          // Play immediately — user hears acknowledgment while tools are running
+          playAudio(event.audio_base64);
+        } else if (event.type === "audio") {
+          audiob64 = event.audio_base64;
+        } else if (event.type === "done") {
+          // Finalize
+          setTurns((prev) => {
+            const next = [...prev];
+            next[assistantTurnIdx] = { ...next[assistantTurnIdx], pending: false };
+            return next;
+          });
+          if (audiob64) {
+            playAudio(audiob64, () => recorder.reset());
+          } else {
+            recorder.reset();
+          }
+          if (dueAt && itemId) {
+            scheduleReminder(itemId, dueAt);
+          }
+          await emit("recall:new-turn", {
+            transcript,
+            response_text: spokenText,
+            intent_type: intentType,
+            item_id: itemId,
+          });
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      setTurns((prev) => {
+        const next = [...prev];
+        next[assistantTurnIdx] = { ...next[assistantTurnIdx], text: "Something went wrong.", pending: false };
+        return next;
+      });
+      setOrbError(true);
+      setTimeout(() => { setOrbError(false); recorder.reset(); }, 2000);
+    }
+  }, [recorder, sessionId, turns.length]);
 
   const lastToggleMs = useRef(0);
 
@@ -122,7 +245,7 @@ export function AgentTab() {
           </div>
         )}
         {turns.map((t, i) => (
-          <div key={i} className={`turn turn--${t.role}`}>
+          <div key={i} className={`turn turn--${t.role}${t.pending ? " turn--pending" : ""}`}>
             {t.intentType && t.role === "user" && (
               <span
                 className="turn__badge"
@@ -131,7 +254,14 @@ export function AgentTab() {
                 {t.intentType.replace("_", " ")}
               </span>
             )}
-            <p>{t.text}</p>
+            {t.steps && t.steps.length > 0 && (
+              <div className="agent-steps">
+                {t.steps.map((step, j) => (
+                  <AgentStepRow key={j} step={step} />
+                ))}
+              </div>
+            )}
+            <p>{t.text || (t.pending ? "…" : "")}</p>
           </div>
         ))}
         <div ref={bottomRef} />
