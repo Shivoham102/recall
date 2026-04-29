@@ -4,7 +4,7 @@ export type StreamEvent =
   | { type: "transcript"; text: string }
   | { type: "thinking"; text: string }
   | { type: "tool_call"; name: string; input: unknown }
-  | { type: "tool_result"; name: string; summary: string }
+  | { type: "tool_result"; name: string; summary: string; data: Record<string, unknown> }
   | { type: "ack_audio"; audio_base64: string; text: string }
   | { type: "spoken"; text: string }
   | { type: "metadata"; intent_type: string; should_store: boolean; due_hint: string | null; reminder_text: string | null }

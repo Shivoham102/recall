@@ -162,7 +162,8 @@ async def gmail_get_updates(inp: dict) -> dict:
     window = "since last check-in" if since_last else f"in the last {since_hours}h"
     return {
         "summary": f"{len(emails)} email(s) {window}",
-        "emails": lines,
+        "emails": lines,           # formatted strings for the agent to read and summarize
+        "emails_data": emails,     # structured objects for frontend card rendering
         "checked_at": now.isoformat(),
     }
 

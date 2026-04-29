@@ -208,7 +208,7 @@ async def run_agentic_loop(
                 except Exception as exc:
                     result = {"summary": f"{block.name} failed: {exc}", "error": True}
 
-                yield {"type": "tool_result", "name": block.name, "summary": result.get("summary", "")}
+                yield {"type": "tool_result", "name": block.name, "summary": result.get("summary", ""), "data": result}
 
                 tool_results.append({
                     "type": "tool_result",
