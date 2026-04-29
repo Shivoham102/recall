@@ -4,6 +4,7 @@ from tools.filesystem import file_create
 _google_tools_available = False
 try:
     from tools.google_services import (
+        gmail_get_updates,
         gmail_find_contact, gmail_fetch_style_samples,
         gmail_draft, calendar_list, calendar_create,
     )
@@ -89,6 +90,28 @@ TOOL_REGISTRY: dict = {
 if _google_tools_available:
     TOOL_DEFINITIONS += [
         {
+            "name": "gmail_get_updates",
+            "description": (
+                "Fetch recent emails from the inbox, filtered to real people (no newsletters or automated mail). "
+                "Use when the user asks for an update, a briefing, or 'what's new'. "
+                "Set since_last_checkin=true when the user says 'since we last checked in' or similar. "
+                "Returns structured email data — summarize each as a single spoken sentence."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "since_last_checkin": {
+                        "type": "boolean",
+                        "description": "If true, fetch emails since the last time this tool was called",
+                    },
+                    "since_hours": {
+                        "type": "integer",
+                        "description": "Hours to look back. Default 24. Ignored when since_last_checkin is true.",
+                    },
+                },
+            },
+        },
+        {
             "name": "gmail_find_contact",
             "description": (
                 "Search the user's sent email history to resolve a person's name (and optionally company) "
@@ -161,6 +184,7 @@ if _google_tools_available:
         },
     ]
     TOOL_REGISTRY.update({
+        "gmail_get_updates": gmail_get_updates,
         "gmail_find_contact": gmail_find_contact,
         "gmail_fetch_style_samples": gmail_fetch_style_samples,
         "gmail_draft": gmail_draft,
