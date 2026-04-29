@@ -65,6 +65,10 @@ def _relative_time(dt: datetime) -> str:
     return f"{hours // 24}d ago"
 
 
+# Single-user app — store last email fetch so surface_cards can look up by index
+_last_email_fetch: list = []
+
+
 async def gmail_get_updates(inp: dict) -> dict:
     """
     Fetch recent important emails from the inbox.
@@ -140,7 +144,9 @@ async def gmail_get_updates(inp: dict) -> dict:
         emails.sort(key=lambda e: (not e["important"], not e["unread"]))
         return emails[:15]
 
+    global _last_email_fetch
     emails = await asyncio.to_thread(_fetch)
+    _last_email_fetch = emails  # stored for surface_cards lookup by index
 
     # Update check-in timestamp
     await asyncio.to_thread(_save_last_checkin, now)
@@ -153,18 +159,30 @@ async def gmail_get_updates(inp: dict) -> dict:
             "checked_at": now.isoformat(),
         }
 
+    # Include indices so the agent can reference specific emails when calling surface_cards
     lines = [
-        f"- {e['sender']}: {e['subject']!r} ({e['received']})"
+        f"[{idx}] {e['sender']}: {e['subject']!r} ({e['received']})"
         + (" [unread]" if e["unread"] else "")
         + (f" — {e['snippet']}" if e["snippet"] else "")
-        for e in emails
+        for idx, e in enumerate(emails)
     ]
     window = "since last check-in" if since_last else f"in the last {since_hours}h"
     return {
         "summary": f"{len(emails)} email(s) {window}",
-        "emails": lines,           # formatted strings for the agent to read and summarize
-        "emails_data": emails,     # structured objects for frontend card rendering
+        "emails": lines,
         "checked_at": now.isoformat(),
+    }
+
+
+async def surface_cards(inp: dict) -> dict:
+    """No-op tool that tells the frontend which emails to render as cards.
+    The agent calls this with the indices of emails it is about to discuss."""
+    indices = inp.get("indices", [])
+    selected = [_last_email_fetch[i] for i in indices if i < len(_last_email_fetch)]
+    return {
+        "summary": f"Showing {len(selected)} card(s)",
+        "card_type": "emails",
+        "items_data": selected,
     }
 
 

@@ -4,7 +4,7 @@ from tools.filesystem import file_create
 _google_tools_available = False
 try:
     from tools.google_services import (
-        gmail_get_updates,
+        gmail_get_updates, surface_cards,
         gmail_find_contact, gmail_fetch_style_samples,
         gmail_draft, calendar_list, calendar_create,
     )
@@ -95,7 +95,8 @@ if _google_tools_available:
                 "Fetch recent emails from the inbox, filtered to real people (no newsletters or automated mail). "
                 "Use when the user asks for an update, a briefing, or 'what's new'. "
                 "Set since_last_checkin=true when the user says 'since we last checked in' or similar. "
-                "Returns structured email data — summarize each as a single spoken sentence."
+                "Emails are returned with numeric indices [0], [1], etc. "
+                "After reading the results, call surface_cards with the indices of the emails you will discuss."
             ),
             "input_schema": {
                 "type": "object",
@@ -109,6 +110,25 @@ if _google_tools_available:
                         "description": "Hours to look back. Default 24. Ignored when since_last_checkin is true.",
                     },
                 },
+            },
+        },
+        {
+            "name": "surface_cards",
+            "description": (
+                "Display specific emails as visual cards in the UI. "
+                "Call this with the indices of the emails you are about to mention in your spoken response — "
+                "only those emails will be shown as cards. Never surface emails you don't discuss."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "indices": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Indices from the gmail_get_updates result, e.g. [0, 2] to show emails 0 and 2",
+                    },
+                },
+                "required": ["indices"],
             },
         },
         {
@@ -185,6 +205,7 @@ if _google_tools_available:
     ]
     TOOL_REGISTRY.update({
         "gmail_get_updates": gmail_get_updates,
+        "surface_cards": surface_cards,
         "gmail_find_contact": gmail_find_contact,
         "gmail_fetch_style_samples": gmail_fetch_style_samples,
         "gmail_draft": gmail_draft,

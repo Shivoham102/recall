@@ -45,6 +45,7 @@ const INTENT_COLORS: Record<string, string> = {
 
 const STEP_LABELS: Record<string, string> = {
   gmail_get_updates:       "checking inbox",
+  surface_cards:           "selecting highlights",
   gmail_find_contact:      "looking up contact",
   gmail_fetch_style_samples: "reading writing style",
   gmail_draft:             "saving draft",
@@ -204,9 +205,9 @@ export function AgentTab() {
               steps[realIdx] = { ...steps[realIdx], summary: event.summary, pending: false };
             }
             asst.steps = steps;
-            // Extract email cards
-            if (event.name === "gmail_get_updates" && Array.isArray(event.data?.emails_data)) {
-              asst.emailCards = event.data.emails_data as EmailCard[];
+            // surface_cards explicitly passes only the emails the agent discussed
+            if (event.name === "surface_cards" && Array.isArray(event.data?.items_data)) {
+              asst.emailCards = event.data.items_data as EmailCard[];
             }
             next[assistantTurnIdx] = asst;
             return next;
