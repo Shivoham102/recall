@@ -387,8 +387,8 @@ body { background: transparent; overflow: hidden; }
   flex-direction: column;
   gap: 4px;
 }
-.turn--user      { align-self: flex-end; background: rgba(0,229,255,0.08); border: 1px solid rgba(0,229,255,0.18); }
-.turn--assistant { align-self: flex-start; background: rgba(255,255,255,0.04); border: 1px solid var(--border); }
+.turn--user      { align-self: flex-end; background: rgba(0,229,255,0.12); border: 1px solid rgba(0,229,255,0.28); }
+.turn--assistant { align-self: flex-start; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14); }
 .turn--system    { align-self: center; background: rgba(255,204,0,0.07); border: 1px solid rgba(255,204,0,0.25); color: #ffcc00; font-size: 0.78rem; text-align: center; }
 .turn--pending { opacity: 0.7; }
 
@@ -405,11 +405,11 @@ body { background: transparent; overflow: hidden; }
   align-items: center;
   gap: 5px;
   font-size: 0.72rem;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.6);
   padding: 2px 0;
   user-select: none;
 }
-.steps-toggle:hover { color: rgba(255,255,255,0.55); }
+.steps-toggle:hover { color: rgba(255,255,255,0.85); }
 .steps-toggle__arrow { font-size: 0.65rem; width: 10px; }
 .steps-toggle__label { letter-spacing: 0.03em; }
 
@@ -425,12 +425,12 @@ body { background: transparent; overflow: hidden; }
   align-items: baseline;
   gap: 6px;
   font-size: 0.7rem;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.65);
 }
-.step-row--pending { color: rgba(255,255,255,0.25); }
+.step-row--pending { color: rgba(255,255,255,0.4); }
 .step-row__icon   { font-size: 0.6rem; width: 10px; flex-shrink: 0; }
-.step-row__label  { color: rgba(255,255,255,0.5); }
-.step-row__summary { opacity: 0.6; font-size: 0.67rem; }
+.step-row__label  { color: rgba(255,255,255,0.75); }
+.step-row__summary { color: rgba(255,255,255,0.5); font-size: 0.67rem; }
 
 /* ── Email cards ── */
 .email-cards {
@@ -440,8 +440,8 @@ body { background: transparent; overflow: hidden; }
   margin-top: 10px;
 }
 .email-card {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15);
   border-radius: 8px;
   padding: 10px 12px;
   display: flex;
@@ -450,8 +450,8 @@ body { background: transparent; overflow: hidden; }
   cursor: default;
   transition: border-color 0.15s;
 }
-.email-card:hover { border-color: var(--border2); }
-.email-card--unread { border-color: rgba(0,229,255,0.2); }
+.email-card:hover { border-color: rgba(255,255,255,0.28); }
+.email-card--unread { border-color: rgba(0,229,255,0.35); }
 .email-card__header {
   display: flex;
   justify-content: space-between;
@@ -461,27 +461,27 @@ body { background: transparent; overflow: hidden; }
 .email-card__sender {
   font-size: 0.78rem;
   font-weight: 600;
-  color: rgba(255,255,255,0.85);
+  color: rgba(255,255,255,0.95);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .email-card__time {
   font-size: 0.65rem;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.55);
   white-space: nowrap;
   flex-shrink: 0;
 }
 .email-card__subject {
   font-size: 0.72rem;
-  color: rgba(255,255,255,0.6);
+  color: rgba(255,255,255,0.8);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .email-card__snippet {
   font-size: 0.68rem;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.55);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -496,7 +496,19 @@ body { background: transparent; overflow: hidden; }
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #00e5ff;
-  opacity: 0.7;
+  opacity: 0.9;
+}
+
+/* ── Task cards in agent tab ── */
+.agent-task-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.agent-task-cards .task-card {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.15);
 }
 
 .turn__badge {

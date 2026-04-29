@@ -1,4 +1,4 @@
-from tools.memory import classify_intent, recall_search, recall_update_item
+from tools.memory import classify_intent, recall_search, recall_update_item, surface_tasks
 from tools.filesystem import file_create
 
 _google_tools_available = False
@@ -66,6 +66,26 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "surface_tasks",
+        "description": (
+            "Display specific tasks as visual cards in the UI. "
+            "Call this with the indices of the tasks you are about to mention in your spoken response — "
+            "only those tasks will be shown as cards. "
+            "Always call this after recall_search when you will discuss specific tasks."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "indices": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Indices from the recall_search result, e.g. [0, 1] to show the first two tasks",
+                },
+            },
+            "required": ["indices"],
+        },
+    },
+    {
         "name": "file_create",
         "description": "Create a new text file on the local filesystem. Safe to call immediately — no confirmation needed.",
         "input_schema": {
@@ -84,6 +104,7 @@ TOOL_REGISTRY: dict = {
     "classify_intent": classify_intent,
     "recall_search": recall_search,
     "recall_update_item": recall_update_item,
+    "surface_tasks": surface_tasks,
     "file_create": file_create,
 }
 

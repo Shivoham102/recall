@@ -18,3 +18,4 @@ Thumbs.db
 # Google OAuth credentials — never commit these
 backend/credentials.json
 backend/token.json
+backend/last_checkin.json

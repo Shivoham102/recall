@@ -22,16 +22,34 @@ interface EmailCard {
   important: boolean;
 }
 
+interface TaskCard {
+  id: string;
+  content: string;
+  intent_type: string;
+  status: string;
+  created_at: string;
+  due_hint?: string | null;
+}
+
 interface Turn {
   role: "user" | "assistant" | "system";
   text: string;
   intentType?: string;
   steps?: AgentStep[];
   emailCards?: EmailCard[];
+  taskCards?: TaskCard[];
   pending?: boolean;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
+
+const TASK_TYPE_COLOR: Record<string, string> = {
+  blocker:   "#ff4466",
+  task:      "#00e5ff",
+  follow_up: "#ff9900",
+  progress:  "#00ff88",
+  note:      "#9988ff",
+};
 
 const INTENT_COLORS: Record<string, string> = {
   task:      "#00e5ff",
@@ -50,6 +68,7 @@ const STEP_LABELS: Record<string, string> = {
   gmail_fetch_style_samples: "reading writing style",
   gmail_draft:             "saving draft",
   recall_search:           "searching memory",
+  surface_tasks:           "selecting tasks",
   recall_update_item:      "updating task",
   calendar_list:           "checking calendar",
   calendar_create:         "creating event",
@@ -103,6 +122,38 @@ function EmailCardGrid({ cards }: { cards: EmailCard[] }) {
           {card.unread && <div className="email-card__badge">unread</div>}
         </div>
       ))}
+    </div>
+  );
+}
+
+function TaskCardGrid({ cards }: { cards: TaskCard[] }) {
+  function fmt(iso: string) {
+    const d = new Date(iso);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
+    if (diffDays === 0) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return d.toLocaleDateString([], { weekday: "short" });
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+
+  return (
+    <div className="agent-task-cards">
+      {cards.map((card) => {
+        const color = TASK_TYPE_COLOR[card.intent_type] ?? "#aaa";
+        return (
+          <div key={card.id} className="task-card">
+            <span className="task-card__badge" style={{ color, borderColor: color }}>
+              {card.intent_type.replace("_", " ")}
+            </span>
+            <p className="task-card__content">{card.content}</p>
+            <div className="task-card__footer">
+              <span className="task-card__date">{fmt(card.created_at)}</span>
+              {card.due_hint && <span className="task-card__due">due: {card.due_hint}</span>}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -209,6 +260,10 @@ export function AgentTab() {
             if (event.name === "surface_cards" && Array.isArray(event.data?.items_data)) {
               asst.emailCards = event.data.items_data as EmailCard[];
             }
+            // surface_tasks explicitly passes only the tasks the agent discussed
+            if (event.name === "surface_tasks" && Array.isArray(event.data?.items_data)) {
+              asst.taskCards = event.data.items_data as TaskCard[];
+            }
             next[assistantTurnIdx] = asst;
             return next;
           });
@@ -314,6 +369,9 @@ export function AgentTab() {
             {t.text && <p>{t.text}</p>}
             {t.emailCards && t.emailCards.length > 0 && (
               <EmailCardGrid cards={t.emailCards} />
+            )}
+            {t.taskCards && t.taskCards.length > 0 && (
+              <TaskCardGrid cards={t.taskCards} />
             )}
           </div>
         ))}
