@@ -10,7 +10,8 @@ import sys
 
 from googleapiclient.discovery import build
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
-from google_auth import get_credentials
+from google_auth import get_credentials, get_credentials_for_user
+import context
 
 _CHECKIN_FILE = pathlib.Path(__file__).parent.parent / "last_checkin.json"
 
@@ -23,12 +24,19 @@ _NOISE_PATTERNS = re.compile(
 )
 
 
+def _get_creds():
+    user_id = context.current_user_id.get("")
+    if user_id:
+        return get_credentials_for_user(user_id)
+    return get_credentials()
+
+
 def _gmail_service():
-    return build("gmail", "v1", credentials=get_credentials(), cache_discovery=False)
+    return build("gmail", "v1", credentials=_get_creds(), cache_discovery=False)
 
 
 def _calendar_service():
-    return build("calendar", "v3", credentials=get_credentials(), cache_discovery=False)
+    return build("calendar", "v3", credentials=_get_creds(), cache_discovery=False)
 
 
 def _make_message(to: str, subject: str, body: str) -> dict:

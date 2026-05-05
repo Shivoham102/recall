@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from db import get_db
 from tts import synthesize
+from auth import get_current_user
 
 router = APIRouter()
 
@@ -12,23 +13,31 @@ class DismissRequest(BaseModel):
 
 
 @router.post("/reminders/dismiss")
-def dismiss_reminders(body: DismissRequest):
+def dismiss_reminders(body: DismissRequest, user: dict = Depends(get_current_user)):
     """Mark a list of reminder items as reminded without delivering audio. Used for missed reminders on startup."""
     if not body.ids:
         return {"dismissed": 0}
     now = datetime.now(timezone.utc).isoformat()
     for item_id in body.ids:
-        get_db().table("recall_items").update({"reminded_at": now}).eq("id", item_id).execute()
+        (
+            get_db()
+            .table("recall_items")
+            .update({"reminded_at": now})
+            .eq("id", item_id)
+            .eq("user_id", user["sub"])
+            .execute()
+        )
     return {"dismissed": len(body.ids)}
 
 
 @router.get("/reminders/pending")
-def get_pending_reminders():
+def get_pending_reminders(user: dict = Depends(get_current_user)):
     """Read-only — returns all unreminded future items. No side effects."""
     result = (
         get_db()
         .table("recall_items")
         .select("id, content, intent_type, due_at")
+        .eq("user_id", user["sub"])
         .not_.is_("due_at", "null")
         .is_("reminded_at", "null")
         .neq("status", "done")
@@ -38,13 +47,14 @@ def get_pending_reminders():
 
 
 @router.get("/reminders/due")
-async def get_due_reminders():
+async def get_due_reminders(user: dict = Depends(get_current_user)):
     """Returns all currently-due items with TTS audio, marking each reminded only after success."""
     now = datetime.now(timezone.utc).isoformat()
     result = (
         get_db()
         .table("recall_items")
         .select("id, content, intent_type, reminder_text")
+        .eq("user_id", user["sub"])
         .lte("due_at", now)
         .is_("reminded_at", "null")
         .neq("status", "done")

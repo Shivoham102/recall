@@ -1,9 +1,11 @@
 import dateparser
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from stt import transcribe
 from rag import retrieve_similar, store_item
 from agent import call_agent
 from tts import synthesize
+from auth import get_current_user
+import context
 
 router = APIRouter()
 
@@ -35,6 +37,7 @@ def _parse_due_at(due_hint: str | None) -> str | None:
 async def capture(
     audio: UploadFile = File(...),
     session_id: str = Form(...),
+    user: dict = Depends(get_current_user),
 ):
     audio_bytes = await audio.read()
 
@@ -45,6 +48,8 @@ async def capture(
 
     if not transcript:
         raise HTTPException(status_code=422, detail="Empty transcript")
+
+    context.current_user_id.set(user["sub"])
 
     similar = retrieve_similar(transcript)
     rag_context = _fmt_context(similar)

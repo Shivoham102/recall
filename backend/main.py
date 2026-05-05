@@ -2,6 +2,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from routes.auth import router as auth_router
 from routes.capture import router as capture_router
 from routes.query import router as query_router
 from routes.items import router as items_router
@@ -20,6 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(capture_router)
 app.include_router(query_router)
 app.include_router(items_router)

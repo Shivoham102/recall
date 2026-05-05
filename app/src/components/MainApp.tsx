@@ -4,26 +4,32 @@ import { AgentTab } from "./tabs/AgentTab";
 import { TasksTab } from "./tabs/TasksTab";
 import { TranscriptsTab } from "./tabs/TranscriptsTab";
 import { RemindersTab } from "./tabs/RemindersTab";
+import { ProfileTab } from "./tabs/ProfileTab";
 import { loadPendingReminders } from "../services/reminderScheduler";
+import { AuthUser } from "../hooks/useAuth";
 
-type Tab = "agent" | "tasks" | "transcripts" | "reminders";
+interface Props {
+  user: AuthUser;
+  onLogout: () => void;
+}
+
+type Tab = "agent" | "tasks" | "transcripts" | "reminders" | "profile";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "agent",       label: "Agent",       icon: "◈" },
   { id: "tasks",       label: "Tasks",       icon: "◻" },
   { id: "transcripts", label: "Transcripts", icon: "≡" },
   { id: "reminders",   label: "Reminders",   icon: "◷" },
+  { id: "profile",     label: "Profile",     icon: "◉" },
 ];
 
-export function MainApp() {
+export function MainApp({ user, onLogout }: Props) {
   const [tab, setTab] = useState<Tab>("agent");
   const appWindow = useRef(getCurrentWindow()).current;
 
   useEffect(() => {
-    // Load on startup — fires immediately for past-due, schedules the rest
     loadPendingReminders();
 
-    // Re-check on focus/resume to catch timers that slept through hibernate
     const onFocus = () => loadPendingReminders();
     const onVisibility = () => { if (document.visibilityState === "visible") loadPendingReminders(); };
 
@@ -66,6 +72,7 @@ export function MainApp() {
         {tab === "tasks"       && <TasksTab />}
         {tab === "transcripts" && <TranscriptsTab />}
         {tab === "reminders"   && <RemindersTab />}
+        {tab === "profile"     && <ProfileTab user={user} onLogout={onLogout} />}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 from db import get_db
+import context
 
 
 def _serialize(history: list[dict]) -> list:
@@ -16,8 +17,9 @@ def _serialize(history: list[dict]) -> list:
 
 def save_session(session_id: str, history: list[dict]) -> None:
     try:
+        user_id = context.current_user_id.get("") or None
         get_db().table("sessions").upsert(
-            {"session_id": session_id, "history": _serialize(history)},
+            {"session_id": session_id, "history": _serialize(history), "user_id": user_id},
             on_conflict="session_id",
         ).execute()
     except Exception:

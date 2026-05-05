@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
 from db import get_db
+from auth import get_current_user
 
 router = APIRouter()
 
 
 @router.get("/items")
 def get_items(
+    user: dict = Depends(get_current_user),
     status: str | None = None,
     has_due_hint: bool = False,
     limit: int = Query(100, le=500),
@@ -14,7 +16,7 @@ def get_items(
     db = get_db()
     query = db.table("recall_items").select(
         "id,content,intent_type,status,created_at,updated_at,due_hint"
-    )
+    ).eq("user_id", user["sub"])
     if status:
         query = query.eq("status", status)
     if has_due_hint:
@@ -29,10 +31,16 @@ class ItemUpdate(BaseModel):
 
 
 @router.patch("/items/{item_id}")
-def update_item(item_id: str, body: ItemUpdate):
+def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(get_current_user)):
     db = get_db()
     update = {k: v for k, v in body.model_dump().items() if v is not None}
     if not update:
         return {}
-    result = db.table("recall_items").update(update).eq("id", item_id).execute()
+    result = (
+        db.table("recall_items")
+        .update(update)
+        .eq("id", item_id)
+        .eq("user_id", user["sub"])
+        .execute()
+    )
     return result.data[0] if result.data else {}

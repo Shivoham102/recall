@@ -1,3 +1,5 @@
+import { getAuthHeader } from "../hooks/useAuth";
+
 const BASE = "http://localhost:8000";
 
 export type StreamEvent =
@@ -14,7 +16,11 @@ export type StreamEvent =
   | { type: "done" };
 
 async function* _streamEvents(form: FormData): AsyncGenerator<StreamEvent> {
-  const res = await fetch(`${BASE}/capture/stream`, { method: "POST", body: form });
+  const res = await fetch(`${BASE}/capture/stream`, {
+    method: "POST",
+    body: form,
+    headers: getAuthHeader(),
+  });
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => String(res.status));
     throw new Error(`capture/stream failed: ${detail}`);
@@ -52,6 +58,15 @@ export async function* captureStream(
   yield* _streamEvents(form);
 }
 
+export async function* captureStreamText(
+  text: string,
+  sessionId: string,
+): AsyncGenerator<StreamEvent> {
+  const form = new FormData();
+  form.append("text", text);
+  form.append("session_id", sessionId);
+  yield* _streamEvents(form);
+}
 
 export interface RecallItem {
   id: string;
@@ -86,7 +101,11 @@ export async function capture(
   const form = new FormData();
   form.append("audio", audioBlob, "recording.webm");
   form.append("session_id", sessionId);
-  const res = await fetch(`${BASE}/capture`, { method: "POST", body: form });
+  const res = await fetch(`${BASE}/capture`, {
+    method: "POST",
+    body: form,
+    headers: getAuthHeader(),
+  });
   if (!res.ok) {
     const detail = await res.text().catch(() => String(res.status));
     throw new Error(`capture failed: ${detail}`);
@@ -97,7 +116,7 @@ export async function capture(
 export async function queryText(text: string, sessionId: string) {
   const res = await fetch(`${BASE}/query`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
     body: JSON.stringify({ text, session_id: sessionId }),
   });
   if (!res.ok) throw new Error(`query failed: ${res.status}`);
@@ -113,7 +132,7 @@ export async function getItems(params?: {
   if (params?.status) url.searchParams.set("status", params.status);
   if (params?.has_due_hint) url.searchParams.set("has_due_hint", "true");
   if (params?.limit) url.searchParams.set("limit", String(params.limit));
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { headers: getAuthHeader() });
   if (!res.ok) throw new Error(`getItems failed: ${res.status}`);
   return res.json();
 }
@@ -124,7 +143,7 @@ export async function updateItem(
 ): Promise<RecallItem> {
   const res = await fetch(`${BASE}/items/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
     body: JSON.stringify(update),
   });
   if (!res.ok) throw new Error(`updateItem failed: ${res.status}`);
@@ -145,13 +164,13 @@ export interface DueReminder {
 }
 
 export async function getPendingReminders(): Promise<PendingReminder[]> {
-  const res = await fetch(`${BASE}/reminders/pending`);
+  const res = await fetch(`${BASE}/reminders/pending`, { headers: getAuthHeader() });
   if (!res.ok) throw new Error(`reminders/pending failed: ${res.status}`);
   return res.json();
 }
 
 export async function checkDueReminders(): Promise<DueReminder[]> {
-  const res = await fetch(`${BASE}/reminders/due`);
+  const res = await fetch(`${BASE}/reminders/due`, { headers: getAuthHeader() });
   if (!res.ok) throw new Error(`reminders/due failed: ${res.status}`);
   return res.json();
 }
@@ -160,7 +179,7 @@ export async function dismissReminders(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   await fetch(`${BASE}/reminders/dismiss`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
     body: JSON.stringify({ ids }),
   });
 }

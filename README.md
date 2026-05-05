@@ -16,6 +16,7 @@ Hit a hotkey, speak a thought, and Recall captures it, classifies it, and respon
 - **Gmail integration** — read inbox updates, draft emails in your writing style (fetches your sent history first)
 - **Google Calendar integration** — list upcoming events, create events by voice with confirmation
 - **Session persistence** — conversation history survives backend restarts
+- **Google SSO** — sign in once with Google; the same consent grants Gmail and Calendar access
 
 ---
 
@@ -25,13 +26,20 @@ Hit a hotkey, speak a thought, and Recall captures it, classifies it, and respon
 ┌──────────────────────────────────────────────────────────────┐
 │  Tauri v2 + React (two windows)                              │
 │                                                              │
-│  FloatingWindow — Ctrl+Shift+Space, quick voice capture      │
-│  MainApp — 4 tabs: Agent · Tasks · Transcripts · Reminders   │
+│  Orb window  — Ctrl+Shift+Space, quick voice capture         │
+│  MainApp     — 5 tabs: Agent · Tasks · Transcripts ·         │
+│                        Reminders · Profile                   │
 │  System tray icon for minimize/restore                       │
 └──────────────────┬───────────────────────────────────────────┘
                    │ HTTP + Server-Sent Events (SSE)
+                   │ Authorization: Bearer <JWT> on every request
 ┌──────────────────▼───────────────────────────────────────────┐
 │  FastAPI backend (localhost:8000)                             │
+│                                                              │
+│  GET  /auth/url             → Google OAuth URL + state       │
+│  GET  /auth/callback        → exchange code, issue JWT       │
+│  GET  /auth/poll?state=     → frontend polls for JWT         │
+│  GET  /auth/me              → validate JWT, return user info │
 │                                                              │
 │  POST /capture/stream   audio or text → SSE event stream     │
 │  POST /capture          audio → single JSON response (legacy)│
@@ -50,17 +58,20 @@ Hit a hotkey, speak a thought, and Recall captures it, classifies it, and respon
 │                                                              │
 │  faster-whisper  STT (local, CPU)                            │
 │  OpenAI          embeddings (text-embedding-3-small)         │
-│  ElevenLabs      TTS voice response                          │
+│                  TTS (tts-1, nova voice)                     │
 └──────────────────┬───────────────────────────────────────────┘
                    │ pgvector + JSONB
 ┌──────────────────▼───────────────────────────────────────────┐
 │  Supabase (PostgreSQL + pgvector)                            │
+│  users        — Google identity + OAuth tokens               │
 │  recall_items — items, embeddings, due dates, reminders      │
 │  sessions     — persisted conversation history per session   │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 **Streaming capture flow:** hold mic → webm/opus recorded in browser → `POST /capture/stream` → faster-whisper transcribes → RAG retrieves similar items → Claude agentic loop with tools → SSE yields transcript, tool steps, spoken text, and TTS audio in real time → item stored if actionable.
+
+**Auth flow:** app opens → checks localStorage for JWT → if missing, shows login screen → user clicks "Sign in with Google" → backend builds OAuth URL (openid + Gmail + Calendar scopes) → system browser opens → user consents → backend exchanges code for tokens, stores them in Supabase, issues a 30-day JWT → frontend polls `/auth/poll`, receives JWT → stores in localStorage → renders main app. JWT is auto-generated and persisted to `AppData/Local/Recall/` for shipped builds.
 
 ---
 
@@ -71,12 +82,13 @@ Hit a hotkey, speak a thought, and Recall captures it, classifies it, and respon
 | Desktop shell | Tauri v2 |
 | Frontend | React 19 + TypeScript + Vite |
 | Backend | FastAPI + Python 3.11+ |
+| Auth | Google OAuth 2.0 SSO + JWT (HS256, PyJWT) |
 | STT | faster-whisper (local, `base` model, CPU) |
-| TTS | ElevenLabs API (`eleven_turbo_v2`) |
+| TTS | OpenAI TTS API (`tts-1`, `nova` voice) |
 | Agent | Anthropic Claude `claude-sonnet-4-6` with prompt caching |
 | Embeddings | OpenAI `text-embedding-3-small` (1536 dims) |
 | Database | Supabase — PostgreSQL + pgvector (HNSW index) |
-| Google APIs | Gmail + Google Calendar (optional, OAuth 2.0) |
+| Google APIs | Gmail + Google Calendar via SSO OAuth 2.0 |
 
 ---
 
@@ -86,18 +98,21 @@ Hit a hotkey, speak a thought, and Recall captures it, classifies it, and respon
 recall/
 ├── .env.example
 ├── db/
-│   └── schema.sql            ← run in Supabase SQL editor (recall_items + sessions tables)
+│   └── schema.sql            ← run in Supabase SQL editor
 ├── test_backend.py           ← end-to-end test script
 ├── backend/
 │   ├── main.py               ← FastAPI app + route registration
 │   ├── agent.py              ← Claude sessions, agentic loop, prompt caching
+│   ├── auth.py               ← JWT encode/decode, get_current_user dependency
+│   ├── context.py            ← ContextVar for per-request user_id propagation
 │   ├── session_store.py      ← Supabase-backed session persistence
 │   ├── rag.py                ← embed(), retrieve_similar(), store_item()
 │   ├── stt.py                ← faster-whisper transcription
-│   ├── tts.py                ← ElevenLabs synthesis
+│   ├── tts.py                ← OpenAI TTS synthesis
 │   ├── db.py                 ← Supabase client
-│   ├── google_auth.py        ← OAuth2 flow for Gmail + Calendar
+│   ├── google_auth.py        ← get_credentials_for_user() reads tokens from Supabase
 │   ├── routes/
+│   │   ├── auth.py           ← GET /auth/url|callback|poll|me (OAuth + JWT)
 │   │   ├── agent_stream.py   ← POST /capture/stream (SSE, main path)
 │   │   ├── capture.py        ← POST /capture (legacy single-response)
 │   │   ├── query.py          ← POST /query (text-only)
@@ -113,18 +128,22 @@ recall/
     └── src/
         ├── components/
         │   ├── MainApp.tsx         ← tab router + reminder scheduler
-        │   ├── FloatingWindow.tsx  ← orb window (Ctrl+Shift+Space)
+        │   ├── LoginScreen.tsx     ← Google SSO login UI with polling
+        │   ├── OrbWindow.tsx       ← hotkey-triggered orb (Ctrl+Shift+Space)
+        │   ├── FloatingWindow.tsx  ← streaming voice capture window
         │   ├── VoiceButton.tsx
         │   ├── ChatHistory.tsx
         │   └── tabs/
         │       ├── AgentTab.tsx        ← streaming chat, tool steps, email/task cards
         │       ├── TasksTab.tsx
         │       ├── TranscriptsTab.tsx
-        │       └── RemindersTab.tsx
+        │       ├── RemindersTab.tsx
+        │       └── ProfileTab.tsx      ← user info, Google connection, sign out
         ├── hooks/
-        │   └── useRecorder.ts
+        │   ├── useRecorder.ts
+        │   └── useAuth.ts          ← JWT storage, /auth/me validation, logout
         └── services/
-            ├── api.ts                  ← captureStream(), items, reminders API
+            ├── api.ts                  ← captureStream(), items, reminders API (auth headers)
             └── reminderScheduler.ts    ← timer management, missed-reminder detection
 ```
 
@@ -141,9 +160,8 @@ recall/
 | ffmpeg | `winget install Gyan.FFmpeg` — required for webm audio decoding |
 | Supabase project | Free tier works |
 | Anthropic API key | [console.anthropic.com](https://console.anthropic.com) |
-| OpenAI API key | For embeddings only |
-| ElevenLabs API key | [elevenlabs.io](https://elevenlabs.io) |
-| Google Cloud project | Optional — only needed for Gmail / Calendar tools |
+| OpenAI API key | Used for both embeddings and TTS |
+| Google Cloud project | Required for login (SSO) and Gmail / Calendar tools |
 
 ---
 
@@ -161,12 +179,20 @@ Edit `.env`:
 
 ```ini
 ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=sk-...          # used for embeddings + TTS
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_ANON_KEY=eyJ...
-ELEVENLABS_API_KEY=...
-ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM   # default: Rachel
 BACKEND_PORT=8000
+
+# Google SSO — copy from your credentials.json
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+# Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+# (auto-generated on first run if omitted — stored in AppData/Local/Recall/)
+JWT_SECRET=...
+
+# Optional
+OPENAI_TTS_VOICE=nova          # any OpenAI TTS voice: alloy, echo, fable, onyx, nova, shimmer
 ```
 
 ### 2. Initialize the database
@@ -174,8 +200,9 @@ BACKEND_PORT=8000
 Open your Supabase project → **SQL Editor** → paste the contents of `db/schema.sql` → **Run**.
 
 This creates:
-- `recall_items` — stores captured items with pgvector embeddings, due dates, and reminder state
-- `sessions` — persists conversation history across backend restarts
+- `users` — Google identity and OAuth tokens
+- `recall_items` — captured items with pgvector embeddings, due dates, and reminder state
+- `sessions` — persisted conversation history across backend restarts
 
 ### 3. Set up the Python backend
 
@@ -201,7 +228,16 @@ curl http://localhost:8000/health
 # → {"status":"ok"}
 ```
 
-### 4. Set up the frontend
+### 4. Set up the Google Cloud project
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com) → create or open a project
+2. Enable the **Gmail API** and **Google Calendar API**
+3. Go to **APIs & Services → Credentials → Create credentials → OAuth 2.0 Client ID**
+   - Application type: **Desktop app**
+4. Under **Authorized redirect URIs**, add: `http://localhost:8000/auth/callback`
+5. Download `credentials.json` and place it in `backend/`
+
+### 5. Set up the frontend
 
 ```bash
 cd app
@@ -211,21 +247,7 @@ pnpm tauri dev
 
 First run compiles Rust — takes 2–5 minutes. Subsequent runs are fast.
 
-### 5. Google integration (optional)
-
-To enable Gmail and Google Calendar tools:
-
-1. Create a project in [Google Cloud Console](https://console.cloud.google.com)
-2. Enable the **Gmail API** and **Google Calendar API**
-3. Create OAuth 2.0 credentials (Desktop app type)
-4. Download `credentials.json` and place it in `backend/`
-5. Run the auth flow once:
-   ```bash
-   cd backend && python google_auth.py
-   ```
-   A browser window will open — sign in and grant access. This saves `token.json` and is not needed again unless the token expires.
-
-The app works fully without Google credentials — Gmail and Calendar tools are simply unavailable.
+On first launch the app shows a login screen. Click **Sign in with Google** — a browser window opens, you consent, and the app loads. The 30-day JWT is stored in localStorage; subsequent opens skip the login screen.
 
 ---
 
@@ -235,7 +257,7 @@ Once both the backend and frontend are running:
 
 ### Floating orb (quick capture)
 - Press `Ctrl+Shift+Space` to show/hide the orb window
-- Hold the mic button, speak, release — done in ~10 seconds
+- Speak — the orb records, transcribes, and responds
 - The orb supports the full agent loop: tools, memory search, everything
 
 ### Main window — Agent tab
@@ -244,7 +266,6 @@ Once both the backend and frontend are running:
 - Task cards appear inline when the agent surfaces open items
 - Say **"any updates from my email?"** — agent reads inbox and summarizes
 - Say **"what's on my calendar today?"** — agent lists events
-- Say **"brief me"** — combined email + calendar + tasks morning summary
 
 ### Reminders
 - Say **"remind me to [x] at [time]"** — the agent stores it with a parsed due date
@@ -253,9 +274,24 @@ Once both the backend and frontend are running:
 ### Tasks tab
 - Browse all stored recall items, filter by status, mark as resolved
 
+### Profile tab
+- Shows your Google account info and connection status
+- Sign out button
+
 ---
 
 ## API reference
+
+All endpoints except `/health` and `/auth/*` require an `Authorization: Bearer <token>` header.
+
+### Auth endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /auth/url` | Returns `{ url, state }` — open `url` in system browser |
+| `GET /auth/callback` | Google redirects here; exchanges code, issues JWT |
+| `GET /auth/poll?state=` | Poll every 2 s; returns `{ ready, token }` when done |
+| `GET /auth/me` | Validates JWT; returns `{ user_id, email, name }` |
 
 ### `POST /capture/stream`
 
@@ -278,17 +314,15 @@ SSE event types emitted:
 | `ack_audio` | `{ audio_base64, text }` | Short acknowledgment audio, played immediately while tools run |
 | `spoken` | `{ text }` | Final agent response text |
 | `metadata` | `{ intent_type, should_store, due_hint, reminder_text }` | Classification result |
-| `stored` | `{ item_id, due_at }` | Item stored in Supabase (item_id null if not stored) |
+| `stored` | `{ item_id, due_at }` | Item stored in Supabase (`item_id` null if not stored) |
 | `audio` | `{ audio_base64 }` | Final TTS response audio |
 | `done` | — | Stream complete |
 
 ### `POST /capture`
 
-Legacy single-response endpoint (used by the original orb path). Same form fields as above (audio required). Returns a single JSON object with `transcript`, `response_text`, `audio_base64`, `intent_type`, `item_id`, `due_at`.
+Legacy single-response endpoint. Same form fields (audio required). Returns a single JSON object with `transcript`, `response_text`, `audio_base64`, `intent_type`, `item_id`, `due_at`.
 
 ### `GET /items`
-
-Query stored recall items.
 
 | Param | Type | Description |
 |---|---|---|
@@ -296,13 +330,15 @@ Query stored recall items.
 | `has_due_hint` | bool | Only return items with a due date |
 | `limit` | int | Max results, default 100 |
 
+Results are scoped to the authenticated user.
+
 ### `PATCH /items/:id`
 
 Update an item's status or due date. JSON body: `{ "status": "resolved" }` or `{ "due_hint": "tomorrow at 3pm" }`.
 
 ### `GET /reminders/pending`
 
-Returns all items with a due date that haven't been delivered yet. No side effects.
+Returns all unreminded future items for the authenticated user. No side effects.
 
 ### `GET /reminders/due`
 
@@ -357,20 +393,26 @@ Windows Settings → Privacy & security → Microphone → allow the app.
 **`pnpm tauri dev` fails with linker error**
 Rust is not installed. Install via [rustup.rs](https://rustup.rs), then restart your terminal.
 
-**ElevenLabs returns 401**
-`ELEVENLABS_API_KEY` in `.env` is missing or incorrect.
-
 **Supabase RPC error about `vector` type**
 pgvector extension not enabled. Re-run `db/schema.sql` — the `CREATE EXTENSION IF NOT EXISTS vector` line handles this.
 
 **Session persistence not working**
-The `sessions` table doesn't exist. Run `db/schema.sql` in the Supabase SQL editor (the `CREATE TABLE IF NOT EXISTS sessions` statement at the top).
+The `sessions` table doesn't exist. Run `db/schema.sql` in the Supabase SQL editor.
 
-**Gmail / Calendar tools not available**
-`credentials.json` is missing from `backend/`, or `python google_auth.py` hasn't been run yet. The app works without them — only those tools are unavailable.
+**Login screen shows "Backend unavailable"**
+The FastAPI backend isn't running. Start it with `uvicorn main:app --reload --port 8000` from `backend/`.
 
-**`token.json` expired / Google auth error**
-Delete `backend/token.json` and run `python google_auth.py` again to re-authenticate.
+**"opener.open_url not allowed" error**
+The Tauri opener permission is missing. Ensure `capabilities/default.json` includes `"opener:default"` and `"opener:allow-open-url"`.
+
+**Google OAuth error: redirect_uri mismatch**
+`http://localhost:8000/auth/callback` is not listed in your OAuth client's authorized redirect URIs. Add it in Google Cloud Console → APIs & Services → Credentials → edit your OAuth 2.0 client.
+
+**Gmail / Calendar tools not available after sign-in**
+Check that the Gmail API and Google Calendar API are enabled in your Google Cloud project. The consent screen must include those scopes — sign out from the Profile tab and sign in again to re-consent.
+
+**JWT expired (401 on all requests)**
+The 30-day JWT has expired. Sign out from the Profile tab and sign in again, or clear `recall_auth_token` from localStorage.
 
 **Window doesn't appear on `Ctrl+Shift+Space`**
-Another app has claimed that shortcut. Change `HOTKEY` in `app/src/components/FloatingWindow.tsx`.
+Another app has claimed that shortcut. Change `HOTKEY` in `app/src/components/OrbWindow.tsx`.
