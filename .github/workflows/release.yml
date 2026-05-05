@@ -90,13 +90,18 @@ jobs:
         working-directory: app
         run: pnpm install
 
-      - name: Build and publish release
-        uses: tauri-apps/tauri-action@v0.5
+      - name: Build Tauri app
+        working-directory: app
+        run: pnpm tauri build --target ${{ matrix.rust-target }}
+
+      - name: Publish release artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Recall ${{ github.ref_name }}
+          fail_on_unmatched_files: false
+          files: |
+            app/src-tauri/target/${{ matrix.rust-target }}/release/bundle/nsis/*.exe
+            app/src-tauri/target/${{ matrix.rust-target }}/release/bundle/dmg/*.dmg
+            app/src-tauri/target/${{ matrix.rust-target }}/release/bundle/appimage/*.AppImage
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: app
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Recall ${{ github.ref_name }}'
-          releaseDraft: false
-          prerelease: false
