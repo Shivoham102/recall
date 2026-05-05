@@ -1,4 +1,3 @@
-import React from "react";
 import { RecorderState } from "../hooks/useRecorder";
 
 interface Props {

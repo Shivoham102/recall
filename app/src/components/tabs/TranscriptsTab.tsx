@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getItems, RecallItem } from "../../services/api";
 
 const TYPE_COLOR: Record<string, string> = {

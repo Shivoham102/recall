@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getItems, updateItem, RecallItem } from "../../services/api";
 
 const TYPE_ORDER = ["blocker", "task", "follow_up", "progress", "note"];

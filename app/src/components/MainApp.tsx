@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AgentTab } from "./tabs/AgentTab";
 import { TasksTab } from "./tabs/TasksTab";
