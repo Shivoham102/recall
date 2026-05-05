@@ -2,48 +2,65 @@
 
 A conversational voice assistant for managing working memory throughout the day. Not a logger you talk at — an agent you talk with.
 
-Hit a hotkey, speak a thought, and Recall captures it, classifies it, and responds. Ask it what's open, what you got done today, or what you said you'd follow up on — it answers from everything you've told it, with full context.
+Hit a hotkey, speak a thought, and Recall captures it, classifies it, and responds. Ask it what's open, what you got done, or what you said you'd follow up on. Draft emails, check your calendar, create files — all by voice, all in context.
 
 ---
 
 ## What it does
 
-- **Quick capture** — global hotkey, one sentence, done in 10 seconds
-- **Thinking partner** — multi-turn voice conversation, end-of-day review, untangling what's open
+- **Quick capture** — global hotkey (`Ctrl+Shift+Space`), one sentence, done in ~10 seconds
+- **Agentic conversations** — multi-turn voice chat with real tool use: search your memory, check Gmail, read your calendar, create files
 - **Intent classification** — automatically tags each input as a task, blocker, follow-up, progress update, or note
 - **RAG-powered memory** — before responding, the agent retrieves semantically similar items from your history and reasons over their status and timestamps
-- **Conversational clarification** — if input is ambiguous, the agent asks one follow-up question before storing
+- **Reminders** — set due dates by voice ("remind me at 3 PM"); the app delivers an audio reminder at the right time, even if it was closed in between
+- **Gmail integration** — read inbox updates, draft emails in your writing style (fetches your sent history first)
+- **Google Calendar integration** — list upcoming events, create events by voice with confirmation
+- **Session persistence** — conversation history survives backend restarts
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│  Tauri v2 + React (floating window)     │
-│  Ctrl+Shift+Space to show/hide          │
-│  Hold mic button → speak → release      │
-└───────────────┬─────────────────────────┘
-                │ HTTP (multipart / JSON)
-┌───────────────▼─────────────────────────┐
-│  FastAPI backend (localhost:8000)        │
-│                                         │
-│  POST /capture  audio → full pipeline   │
-│  POST /query    text  → retrieve+reply  │
-│                                         │
-│  faster-whisper  STT (local, CPU)       │
-│  OpenAI          embeddings             │
-│  Claude          agent + classification │
-│  ElevenLabs      TTS voice response     │
-└───────────────┬─────────────────────────┘
-                │ pgvector
-┌───────────────▼─────────────────────────┐
-│  Supabase (PostgreSQL + pgvector)        │
-│  recall_items table + HNSW index         │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  Tauri v2 + React (two windows)                              │
+│                                                              │
+│  FloatingWindow — Ctrl+Shift+Space, quick voice capture      │
+│  MainApp — 4 tabs: Agent · Tasks · Transcripts · Reminders   │
+│  System tray icon for minimize/restore                       │
+└──────────────────┬───────────────────────────────────────────┘
+                   │ HTTP + Server-Sent Events (SSE)
+┌──────────────────▼───────────────────────────────────────────┐
+│  FastAPI backend (localhost:8000)                             │
+│                                                              │
+│  POST /capture/stream   audio or text → SSE event stream     │
+│  POST /capture          audio → single JSON response (legacy)│
+│  GET  /items            list stored recall items             │
+│  PATCH /items/:id       update item status / due date        │
+│  GET  /reminders/pending  undelivered future reminders       │
+│  GET  /reminders/due      due now → delivers TTS audio       │
+│  POST /reminders/dismiss  mark missed reminders as seen      │
+│                                                              │
+│  Agent loop (Claude claude-sonnet-4-6 + tool use):          │
+│    classify_intent · recall_search · recall_update_item      │
+│    surface_tasks · file_create                               │
+│    gmail_get_updates · surface_cards · gmail_find_contact    │
+│    gmail_fetch_style_samples · gmail_draft                   │
+│    calendar_list · calendar_create                           │
+│                                                              │
+│  faster-whisper  STT (local, CPU)                            │
+│  OpenAI          embeddings (text-embedding-3-small)         │
+│  ElevenLabs      TTS voice response                          │
+└──────────────────┬───────────────────────────────────────────┘
+                   │ pgvector + JSONB
+┌──────────────────▼───────────────────────────────────────────┐
+│  Supabase (PostgreSQL + pgvector)                            │
+│  recall_items — items, embeddings, due dates, reminders      │
+│  sessions     — persisted conversation history per session   │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-**Capture flow:** hold mic → webm/opus recorded in browser → POST /capture → faster-whisper transcribes → OpenAI embeds → Supabase retrieves similar open items → Claude classifies intent + generates response with context → ElevenLabs synthesizes → base64 MP3 played back → item stored if actionable.
+**Streaming capture flow:** hold mic → webm/opus recorded in browser → `POST /capture/stream` → faster-whisper transcribes → RAG retrieves similar items → Claude agentic loop with tools → SSE yields transcript, tool steps, spoken text, and TTS audio in real time → item stored if actionable.
 
 ---
 
@@ -54,11 +71,12 @@ Hit a hotkey, speak a thought, and Recall captures it, classifies it, and respon
 | Desktop shell | Tauri v2 |
 | Frontend | React 19 + TypeScript + Vite |
 | Backend | FastAPI + Python 3.11+ |
-| STT | faster-whisper (local, `base` model) |
+| STT | faster-whisper (local, `base` model, CPU) |
 | TTS | ElevenLabs API (`eleven_turbo_v2`) |
-| Agent | Anthropic Claude (`claude-sonnet-4-6`) with prompt caching |
+| Agent | Anthropic Claude `claude-sonnet-4-6` with prompt caching |
 | Embeddings | OpenAI `text-embedding-3-small` (1536 dims) |
 | Database | Supabase — PostgreSQL + pgvector (HNSW index) |
+| Google APIs | Gmail + Google Calendar (optional, OAuth 2.0) |
 
 ---
 
@@ -66,32 +84,48 @@ Hit a hotkey, speak a thought, and Recall captures it, classifies it, and respon
 
 ```
 recall/
-├── .env.example          ← copy to .env and fill in API keys
+├── .env.example
 ├── db/
-│   └── schema.sql        ← run this in Supabase SQL editor first
+│   └── schema.sql            ← run in Supabase SQL editor (recall_items + sessions tables)
+├── test_backend.py           ← end-to-end test script
 ├── backend/
-│   ├── main.py           ← FastAPI app entry
-│   ├── agent.py          ← Claude session management + prompt caching
-│   ├── rag.py            ← embeddings + vector retrieval/storage
-│   ├── stt.py            ← faster-whisper transcription
-│   ├── tts.py            ← ElevenLabs synthesis
-│   ├── db.py             ← Supabase client
+│   ├── main.py               ← FastAPI app + route registration
+│   ├── agent.py              ← Claude sessions, agentic loop, prompt caching
+│   ├── session_store.py      ← Supabase-backed session persistence
+│   ├── rag.py                ← embed(), retrieve_similar(), store_item()
+│   ├── stt.py                ← faster-whisper transcription
+│   ├── tts.py                ← ElevenLabs synthesis
+│   ├── db.py                 ← Supabase client
+│   ├── google_auth.py        ← OAuth2 flow for Gmail + Calendar
 │   ├── routes/
-│   │   ├── capture.py    ← POST /capture
-│   │   └── query.py      ← POST /query
-│   ├── requirements.txt
-│   └── .venv/            ← Python virtual environment
-└── app/                  ← Tauri + React frontend
-    ├── src/
-    │   ├── components/
-    │   │   ├── FloatingWindow.tsx
-    │   │   ├── VoiceButton.tsx
-    │   │   └── ChatHistory.tsx
-    │   ├── hooks/
-    │   │   └── useRecorder.ts
-    │   └── services/
-    │       └── api.ts
-    └── src-tauri/        ← Rust/Tauri configuration
+│   │   ├── agent_stream.py   ← POST /capture/stream (SSE, main path)
+│   │   ├── capture.py        ← POST /capture (legacy single-response)
+│   │   ├── query.py          ← POST /query (text-only)
+│   │   ├── items.py          ← GET /items, PATCH /items/:id
+│   │   └── reminders.py      ← GET /reminders/*, POST /reminders/dismiss
+│   ├── tools/
+│   │   ├── __init__.py       ← TOOL_DEFINITIONS + TOOL_REGISTRY
+│   │   ├── memory.py         ← recall_search, recall_update_item, surface_tasks
+│   │   ├── google_services.py← Gmail + Calendar tools
+│   │   └── filesystem.py     ← file_create
+│   └── requirements.txt
+└── app/
+    └── src/
+        ├── components/
+        │   ├── MainApp.tsx         ← tab router + reminder scheduler
+        │   ├── FloatingWindow.tsx  ← orb window (Ctrl+Shift+Space)
+        │   ├── VoiceButton.tsx
+        │   ├── ChatHistory.tsx
+        │   └── tabs/
+        │       ├── AgentTab.tsx        ← streaming chat, tool steps, email/task cards
+        │       ├── TasksTab.tsx
+        │       ├── TranscriptsTab.tsx
+        │       └── RemindersTab.tsx
+        ├── hooks/
+        │   └── useRecorder.ts
+        └── services/
+            ├── api.ts                  ← captureStream(), items, reminders API
+            └── reminderScheduler.ts    ← timer management, missed-reminder detection
 ```
 
 ---
@@ -107,8 +141,9 @@ recall/
 | ffmpeg | `winget install Gyan.FFmpeg` — required for webm audio decoding |
 | Supabase project | Free tier works |
 | Anthropic API key | [console.anthropic.com](https://console.anthropic.com) |
-| OpenAI API key | For embeddings only (`text-embedding-3-small`) |
+| OpenAI API key | For embeddings only |
 | ElevenLabs API key | [elevenlabs.io](https://elevenlabs.io) |
+| Google Cloud project | Optional — only needed for Gmail / Calendar tools |
 
 ---
 
@@ -122,7 +157,7 @@ cd recall
 cp .env.example .env
 ```
 
-Edit `.env` and fill in all values:
+Edit `.env`:
 
 ```ini
 ANTHROPIC_API_KEY=sk-ant-...
@@ -138,48 +173,59 @@ BACKEND_PORT=8000
 
 Open your Supabase project → **SQL Editor** → paste the contents of `db/schema.sql` → **Run**.
 
-This creates the `recall_items` table with a pgvector column, an HNSW index, and the `match_recall_items` similarity search function.
+This creates:
+- `recall_items` — stores captured items with pgvector embeddings, due dates, and reminder state
+- `sessions` — persists conversation history across backend restarts
 
 ### 3. Set up the Python backend
 
 ```bash
 cd backend
-python -m venv .venv           # skip if already exists
+python -m venv .venv
 .venv\Scripts\activate         # Windows
 # source .venv/bin/activate    # macOS/Linux
 pip install -r requirements.txt
 ```
 
-Copy the `.env` file from the project root into `backend/` as well, or run the server from the root so python-dotenv can find it:
+Start the server:
 
 ```bash
-# From the project root:
-backend\.venv\Scripts\python backend\main.py
+# From backend/ with venv active:
+uvicorn main:app --reload --port 8000
 ```
 
-Or activate the venv and run from the backend directory directly:
-
-```bash
-cd backend && .venv\Scripts\activate
-python main.py
-```
-
-Verify it's running:
+Verify:
 
 ```bash
 curl http://localhost:8000/health
 # → {"status":"ok"}
 ```
 
-### 4. Set up and run the frontend
+### 4. Set up the frontend
 
 ```bash
 cd app
-pnpm install       # skip if already done
+pnpm install
 pnpm tauri dev
 ```
 
-The first `tauri dev` compiles Rust — this takes 2–5 minutes. Subsequent runs are fast.
+First run compiles Rust — takes 2–5 minutes. Subsequent runs are fast.
+
+### 5. Google integration (optional)
+
+To enable Gmail and Google Calendar tools:
+
+1. Create a project in [Google Cloud Console](https://console.cloud.google.com)
+2. Enable the **Gmail API** and **Google Calendar API**
+3. Create OAuth 2.0 credentials (Desktop app type)
+4. Download `credentials.json` and place it in `backend/`
+5. Run the auth flow once:
+   ```bash
+   cd backend && python google_auth.py
+   ```
+   A browser window will open — sign in and grant access. This saves `token.json` and is not needed again unless the token expires.
+
+The app works fully without Google credentials — Gmail and Calendar tools are simply unavailable.
 
 ---
 
@@ -187,66 +233,88 @@ The first `tauri dev` compiles Rust — this takes 2–5 minutes. Subsequent run
 
 Once both the backend and frontend are running:
 
-1. **Show/hide the window** — press `Ctrl+Shift+Space` from anywhere
-2. **Capture something** — hold the mic button, speak, release
-3. **Query your memory** — hold the button and say something like:
-   - *"What's still open?"*
-   - *"What did I work on today?"*
-   - *"What did I say I'd follow up on?"*
-4. **Dismiss the window** — press `Ctrl+Shift+Space` again, or click ✕
+### Floating orb (quick capture)
+- Press `Ctrl+Shift+Space` to show/hide the orb window
+- Hold the mic button, speak, release — done in ~10 seconds
+- The orb supports the full agent loop: tools, memory search, everything
 
-The agent responds by voice and shows the transcript + response in the window. Each captured item is stored with its embedding in Supabase and retrieved semantically on future interactions.
+### Main window — Agent tab
+- Full streaming conversation with visible tool steps
+- Email cards appear inline when the agent discusses specific emails
+- Task cards appear inline when the agent surfaces open items
+- Say **"any updates from my email?"** — agent reads inbox and summarizes
+- Say **"what's on my calendar today?"** — agent lists events
+- Say **"brief me"** — combined email + calendar + tasks morning summary
+
+### Reminders
+- Say **"remind me to [x] at [time]"** — the agent stores it with a parsed due date
+- The app delivers an audio reminder at the right time; if the window was closed, missed reminders appear as a yellow notification on next open
+
+### Tasks tab
+- Browse all stored recall items, filter by status, mark as resolved
 
 ---
 
 ## API reference
 
+### `POST /capture/stream`
+
+Main endpoint. Accepts multipart form data, returns a Server-Sent Events stream.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `session_id` | string | yes | UUID identifying the conversation session |
+| `audio` | file | one of | webm/opus audio from the microphone |
+| `text` | string | one of | plain text to bypass STT (for programmatic use) |
+
+SSE event types emitted:
+
+| Event | Payload | Description |
+|---|---|---|
+| `transcript` | `{ text }` | STT result, streamed as soon as transcription completes |
+| `thinking` | `{ text }` | Agent is reasoning |
+| `tool_call` | `{ name, input }` | A tool was invoked |
+| `tool_result` | `{ name, summary, data }` | Tool execution result |
+| `ack_audio` | `{ audio_base64, text }` | Short acknowledgment audio, played immediately while tools run |
+| `spoken` | `{ text }` | Final agent response text |
+| `metadata` | `{ intent_type, should_store, due_hint, reminder_text }` | Classification result |
+| `stored` | `{ item_id, due_at }` | Item stored in Supabase (item_id null if not stored) |
+| `audio` | `{ audio_base64 }` | Final TTS response audio |
+| `done` | — | Stream complete |
+
 ### `POST /capture`
 
-Accepts multipart form data. Transcribes audio, classifies intent, retrieves context, generates and speaks a response, stores actionable items.
+Legacy single-response endpoint (used by the original orb path). Same form fields as above (audio required). Returns a single JSON object with `transcript`, `response_text`, `audio_base64`, `intent_type`, `item_id`, `due_at`.
 
-| Field | Type | Description |
+### `GET /items`
+
+Query stored recall items.
+
+| Param | Type | Description |
 |---|---|---|
-| `audio` | file | webm/opus or wav audio |
-| `session_id` | string | UUID identifying the conversation session |
+| `status` | string | Filter by `open`, `resolved`, or `snoozed` |
+| `has_due_hint` | bool | Only return items with a due date |
+| `limit` | int | Max results, default 100 |
 
-Response:
-```json
-{
-  "transcript": "I need to fix the login bug before the demo",
-  "response_text": "Got it, I've logged that as a task.",
-  "audio_base64": "<base64 MP3>",
-  "intent_type": "task",
-  "item_id": "uuid-or-null"
-}
-```
+### `PATCH /items/:id`
 
-### `POST /query`
+Update an item's status or due date. JSON body: `{ "status": "resolved" }` or `{ "due_hint": "tomorrow at 3pm" }`.
 
-Accepts JSON. For text-only queries (no audio recording needed).
+### `GET /reminders/pending`
 
-```json
-{ "text": "what is open?", "session_id": "your-session-uuid" }
-```
+Returns all items with a due date that haven't been delivered yet. No side effects.
 
-Response:
-```json
-{
-  "response_text": "You have 3 open items: ...",
-  "audio_base64": "<base64 MP3>",
-  "items": [...]
-}
-```
+### `GET /reminders/due`
 
-### `GET /health`
+Returns all currently-due items with synthesized TTS audio. Marks each as `reminded_at` only after TTS succeeds.
 
-Returns `{"status": "ok"}`.
+### `POST /reminders/dismiss`
+
+Marks items as seen without delivering audio (used for missed reminders on startup). Body: `{ "ids": ["uuid", ...] }`.
 
 ---
 
 ## Intent types
-
-Claude classifies each input into one of:
 
 | Type | Meaning | Stored? |
 |---|---|---|
@@ -262,13 +330,25 @@ Claude classifies each input into one of:
 
 ## Prompt caching
 
-The Claude agent uses [Anthropic prompt caching](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching) on the system prompt. The system prompt is a stable module-level constant in `backend/agent.py` — date and RAG context are injected into the user turn instead, so the cache is never invalidated between calls in a session. On `claude-sonnet-4-6`, cached tokens cost ~10% of the full input price, which adds up quickly for a voice assistant with many turns per session.
+The Claude agent uses [Anthropic prompt caching](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching) on the system prompt. The system prompt is a stable module-level constant in `backend/agent.py` — date and RAG context are injected into the user turn only, so the cache is never invalidated between turns. Tool definitions are also cached. On `claude-sonnet-4-6`, cached tokens cost ~10% of the full input price.
+
+---
+
+## Testing
+
+With the backend running:
+
+```bash
+python test_backend.py
+```
+
+Covers: backend health, items API, reminders API, intent classification, recall search, reminder due dates, file creation, Gmail and Calendar tools (auto-skipped if not configured), session memory, and item updates.
 
 ---
 
 ## Troubleshooting
 
-**`STT failed: ...` on first capture**
+**`STT failed` on first capture**
 ffmpeg is not on PATH. Run `winget install Gyan.FFmpeg`, close and reopen your terminal.
 
 **Microphone access denied**
@@ -280,8 +360,17 @@ Rust is not installed. Install via [rustup.rs](https://rustup.rs), then restart 
 **ElevenLabs returns 401**
 `ELEVENLABS_API_KEY` in `.env` is missing or incorrect.
 
-**Supabase RPC returns an error about `vector` type**
-The pgvector extension wasn't enabled. Re-run `db/schema.sql` — the `CREATE EXTENSION IF NOT EXISTS vector` line at the top handles this.
+**Supabase RPC error about `vector` type**
+pgvector extension not enabled. Re-run `db/schema.sql` — the `CREATE EXTENSION IF NOT EXISTS vector` line handles this.
+
+**Session persistence not working**
+The `sessions` table doesn't exist. Run `db/schema.sql` in the Supabase SQL editor (the `CREATE TABLE IF NOT EXISTS sessions` statement at the top).
+
+**Gmail / Calendar tools not available**
+`credentials.json` is missing from `backend/`, or `python google_auth.py` hasn't been run yet. The app works without them — only those tools are unavailable.
+
+**`token.json` expired / Google auth error**
+Delete `backend/token.json` and run `python google_auth.py` again to re-authenticate.
 
 **Window doesn't appear on `Ctrl+Shift+Space`**
-Another app may have claimed that shortcut. Change `HOTKEY` in `app/src/components/FloatingWindow.tsx` to something else (e.g. `Ctrl+Shift+R`).
+Another app has claimed that shortcut. Change `HOTKEY` in `app/src/components/FloatingWindow.tsx`.
