@@ -68,12 +68,12 @@ export function LoginScreen({ onLogin }: Props) {
 
   return (
     <div className="login-screen">
-      <div className="titlebar">
-        <span className="titlebar__logo" data-tauri-drag-region>
+      <div className="titlebar" data-tauri-drag-region>
+        <span className="titlebar__logo" style={{ cursor: "default" }}>
           <span className="titlebar__dot" />
           Recall
         </span>
-        <div style={{ flex: 1 }} data-tauri-drag-region />
+        <div style={{ flex: 1 }} />
         <div className="titlebar__controls">
           <button className="wm-btn" onClick={() => appWindow.minimize()} title="Minimize">─</button>
           <button className="wm-btn" onClick={() => appWindow.toggleMaximize()} title="Maximize">⬜</button>
