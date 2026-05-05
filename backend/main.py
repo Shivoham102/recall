@@ -1,4 +1,6 @@
 import os
+import sys
+import pathlib
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -10,7 +12,12 @@ from routes.reminders import router as reminders_router
 from routes.agent_stream import router as agent_stream_router
 from stt import get_model
 
-load_dotenv()
+if getattr(sys, "frozen", False):
+    # Running as PyInstaller bundle — load .env from the bundle's extracted dir
+    _bundle_dir = pathlib.Path(sys._MEIPASS)
+    load_dotenv(_bundle_dir / ".env", override=True)
+else:
+    load_dotenv()
 
 app = FastAPI(title="Recall Backend")
 

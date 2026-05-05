@@ -12,7 +12,17 @@
       "Bash(pnpm --version)",
       "Bash(pnpm install *)",
       "Bash(pnpm add *)",
-      "Bash(python -m venv .venv)"
+      "Bash(python -m venv .venv)",
+      "Bash(.venv/Scripts/pip install *)",
+      "Bash(.venv/Scripts/pip show *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(xargs cat *)",
+      "Bash(python -c \"import anthropic; print\\(anthropic.__version__\\)\")",
+      "Bash(/c/Users/shivo/Projects/recall/backend/.venv/Scripts/python -c \"import anthropic; print\\(anthropic.__version__\\)\")",
+      "Bash(/c/Users/shivo/Projects/recall/backend/.venv/Scripts/pip list *)",
+      "Bash(/c/Users/shivo/Projects/recall/backend/.venv/Scripts/pip show *)"
     ]
   }
 }

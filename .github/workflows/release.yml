@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            binary-suffix: .exe
+          - platform: macos-latest
+            rust-target: aarch64-apple-darwin
+            binary-suffix: ''
+          - platform: ubuntu-22.04
+            rust-target: x86_64-unknown-linux-gnu
+            binary-suffix: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write secrets to backend files
+        working-directory: backend
+        shell: bash
+        run: |
+          printf '%s' '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+          printf 'ANTHROPIC_API_KEY=%s\n' '${{ secrets.ANTHROPIC_API_KEY }}' >> .env
+          printf 'OPENAI_API_KEY=%s\n' '${{ secrets.OPENAI_API_KEY }}' >> .env
+          printf 'SUPABASE_URL=%s\n' '${{ secrets.SUPABASE_URL }}' >> .env
+          printf 'SUPABASE_KEY=%s\n' '${{ secrets.SUPABASE_KEY }}' >> .env
+          printf 'JWT_SECRET=%s\n' '${{ secrets.JWT_SECRET }}' >> .env
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build Python sidecar with PyInstaller
+        working-directory: backend
+        shell: bash
+        run: |
+          pip install -r requirements.txt pyinstaller
+          pyinstaller recall-backend.spec
+          mkdir -p ../app/src-tauri/binaries
+          cp "dist/recall-backend${{ matrix.binary-suffix }}" \
+             "../app/src-tauri/binaries/recall-backend-${{ matrix.rust-target }}${{ matrix.binary-suffix }}"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install Node dependencies
+        working-directory: app
+        run: pnpm install
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Recall ${{ github.ref_name }}'
+          releaseDraft: false
+          prerelease: false

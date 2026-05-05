@@ -19,3 +19,12 @@ Thumbs.db
 backend/credentials.json
 backend/token.json
 backend/last_checkin.json
+
+# PyInstaller build output
+backend/dist/
+backend/build/
+backend/*.spec.bak
+
+# Compiled sidecar binaries — built by CI, not committed (except .gitkeep)
+app/src-tauri/binaries/*
+!app/src-tauri/binaries/.gitkeep
