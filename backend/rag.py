@@ -1,16 +1,20 @@
 import os
 from openai import OpenAI
-from dotenv import load_dotenv
 from db import get_db
 import context
 
-load_dotenv()
+_openai: OpenAI | None = None
 
-_openai = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+def _get_openai() -> OpenAI:
+    global _openai
+    if _openai is None:
+        _openai = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    return _openai
 
 
 def embed(text: str) -> list[float]:
-    resp = _openai.embeddings.create(model="text-embedding-3-small", input=text)
+    resp = _get_openai().embeddings.create(model="text-embedding-3-small", input=text)
     return resp.data[0].embedding
 
 
