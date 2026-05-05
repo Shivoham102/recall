@@ -223,7 +223,7 @@ body { background: transparent; overflow: hidden; }
   text-transform: uppercase;
   white-space: nowrap;
   padding-right: 12px;
-  cursor: move;
+  cursor: default;
   user-select: none;
 }
 

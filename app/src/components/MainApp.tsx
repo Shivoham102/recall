@@ -43,8 +43,8 @@ export function MainApp({ user, onLogout }: Props) {
 
   return (
     <div className="main-app">
-      <div className="titlebar">
-        <span className="titlebar__logo" data-tauri-drag-region>
+      <div className="titlebar" data-tauri-drag-region>
+        <span className="titlebar__logo">
           <span className="titlebar__dot" />
           Recall
         </span>
