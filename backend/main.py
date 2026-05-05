@@ -1,9 +1,18 @@
 import os
 import sys
 import pathlib
+from dotenv import load_dotenv
+
+# Must load .env BEFORE importing any routes — they access os.environ at module level
+if getattr(sys, "frozen", False):
+    # Running as PyInstaller bundle — load .env from the bundle's extracted dir
+    _bundle_dir = pathlib.Path(sys._MEIPASS)
+    load_dotenv(_bundle_dir / ".env", override=True)
+else:
+    load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 from routes.auth import router as auth_router
 from routes.capture import router as capture_router
 from routes.query import router as query_router
@@ -11,13 +20,6 @@ from routes.items import router as items_router
 from routes.reminders import router as reminders_router
 from routes.agent_stream import router as agent_stream_router
 from stt import get_model
-
-if getattr(sys, "frozen", False):
-    # Running as PyInstaller bundle — load .env from the bundle's extracted dir
-    _bundle_dir = pathlib.Path(sys._MEIPASS)
-    load_dotenv(_bundle_dir / ".env", override=True)
-else:
-    load_dotenv()
 
 app = FastAPI(title="Recall Backend")
 
@@ -38,7 +40,10 @@ app.include_router(agent_stream_router)
 
 @app.on_event("startup")
 async def startup():
-    get_model()  # warm faster-whisper so first request isn't slow
+    try:
+        get_model()  # warm faster-whisper so first request isn't slow
+    except Exception as e:
+        print(f"Warning: failed to preload STT model: {e}", file=sys.stderr)
 
 
 @app.get("/health")
