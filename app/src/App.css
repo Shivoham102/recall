@@ -815,9 +815,19 @@ body { background: transparent; overflow: hidden; }
   width: 100vw;
   height: 100vh;
   display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  overflow: hidden;
+  color: var(--text);
+}
+
+.login-body {
+  flex: 1;
+  display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg);
 }
 
 .login-card {

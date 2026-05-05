@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { setAuthToken } from "../hooks/useAuth";
 
 const BASE = "http://localhost:8000";
@@ -14,6 +15,7 @@ export function LoginScreen({ onLogin }: Props) {
   const [errorMsg, setErrorMsg] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appWindow = useRef(getCurrentWindow()).current;
 
   const stopPolling = () => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -66,6 +68,19 @@ export function LoginScreen({ onLogin }: Props) {
 
   return (
     <div className="login-screen">
+      <div className="titlebar">
+        <span className="titlebar__logo" data-tauri-drag-region>
+          <span className="titlebar__dot" />
+          Recall
+        </span>
+        <div style={{ flex: 1 }} data-tauri-drag-region />
+        <div className="titlebar__controls">
+          <button className="wm-btn" onClick={() => appWindow.minimize()} title="Minimize">─</button>
+          <button className="wm-btn" onClick={() => appWindow.toggleMaximize()} title="Maximize">⬜</button>
+          <button className="wm-btn wm-btn--close" onClick={() => appWindow.hide()} title="Close">✕</button>
+        </div>
+      </div>
+      <div className="login-body">
       <div className="login-card">
         <div className="login-logo">
           <span className="login-logo__dot" />
@@ -97,6 +112,7 @@ export function LoginScreen({ onLogin }: Props) {
             </button>
           </>
         )}
+      </div>
       </div>
     </div>
   );
