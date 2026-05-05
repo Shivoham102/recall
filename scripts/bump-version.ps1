@@ -10,14 +10,14 @@ $root = Split-Path $PSScriptRoot -Parent
 $tauriPath = Join-Path $root "app\src-tauri\tauri.conf.json"
 $tauri = Get-Content $tauriPath -Raw | ConvertFrom-Json
 $tauri.version = $Version
-$tauri | ConvertTo-Json -Depth 10 | Set-Content $tauriPath -Encoding utf8NoBOM
+$tauri | ConvertTo-Json -Depth 10 | Set-Content $tauriPath -Encoding UTF8
 Write-Host "Updated $tauriPath"
 
 # app/package.json
 $pkgPath = Join-Path $root "app\package.json"
 $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
 $pkg.version = $Version
-$pkg | ConvertTo-Json -Depth 10 | Set-Content $pkgPath -Encoding utf8NoBOM
+$pkg | ConvertTo-Json -Depth 10 | Set-Content $pkgPath -Encoding UTF8
 Write-Host "Updated $pkgPath"
 
 # Cargo.toml (first [package] version line only)
@@ -33,7 +33,7 @@ $updated = foreach ($line in $cargo) {
         $line
     }
 }
-$updated | Set-Content $cargoPath -Encoding utf8NoBOM
+$updated | Set-Content $cargoPath -Encoding UTF8
 Write-Host "Updated $cargoPath"
 
 Write-Host ""
