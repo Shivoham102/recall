@@ -13,14 +13,7 @@ export type StreamEvent =
   | { type: "error"; message: string }
   | { type: "done" };
 
-export async function* captureStream(
-  audioBlob: Blob,
-  sessionId: string,
-): AsyncGenerator<StreamEvent> {
-  const form = new FormData();
-  form.append("audio", audioBlob, "recording.webm");
-  form.append("session_id", sessionId);
-
+async function* _streamEvents(form: FormData): AsyncGenerator<StreamEvent> {
   const res = await fetch(`${BASE}/capture/stream`, { method: "POST", body: form });
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => String(res.status));
@@ -48,6 +41,17 @@ export async function* captureStream(
     }
   }
 }
+
+export async function* captureStream(
+  audioBlob: Blob,
+  sessionId: string,
+): AsyncGenerator<StreamEvent> {
+  const form = new FormData();
+  form.append("audio", audioBlob, "recording.webm");
+  form.append("session_id", sessionId);
+  yield* _streamEvents(form);
+}
+
 
 export interface RecallItem {
   id: string;

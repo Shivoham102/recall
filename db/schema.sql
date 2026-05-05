@@ -1,5 +1,11 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
+CREATE TABLE IF NOT EXISTS sessions (
+  session_id  text        PRIMARY KEY,
+  history     jsonb       NOT NULL DEFAULT '[]',
+  updated_at  timestamptz DEFAULT now()
+);
+
 CREATE TABLE recall_items (
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   content     text        NOT NULL,

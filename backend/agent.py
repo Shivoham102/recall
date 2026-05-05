@@ -32,17 +32,10 @@ For queries: one sentence maximum, specific facts only.
 Never fabricate results — call the appropriate tool, then respond based on what it returns."""
 
 SYSTEM_PROMPT_TOOL_RULES = """Tool usage rules:
-- Call classify_intent on every turn where you give a spoken response without doing agentic work.
-- For recall_update_item, calendar_create: speak the proposed action first (do NOT call the tool yet). Wait for the user to confirm next turn, then execute.
-- gmail_find_contact, gmail_fetch_style_samples, recall_search, calendar_list, and file_create are always safe — call them immediately.
-- gmail_draft is safe to call immediately once you have the recipient and body ready.
-- You can ONLY draft emails, never send them. If the user asks to send an email, draft it and tell them it has been saved as a draft.
-- Email drafting sequence: (1) if you don't have the recipient's email address, call gmail_find_contact first; (2) always call gmail_fetch_style_samples before writing the body; (3) write the body matching the user's tone, sentence length, and vocabulary from those samples; (4) call gmail_draft. Never skip the style samples step — the email must sound like the user, not generic AI.
-- recall_search and calendar_list are read-only — call them immediately to gather context.
-- Only call one tool per turn unless parallel information is clearly required.
-- When the user asks about tasks, to-dos, or pending items: call recall_search, then ALWAYS call surface_tasks with the indices of the tasks you will mention. Even if you already know the tasks from earlier in the conversation, call recall_search again and surface_tasks so the UI shows the cards. Give one short spoken line summarizing what's open.
-- When the user asks for an update, briefing, or "what's new": call gmail_get_updates. If they say "since last time" or "since we checked in", set since_last_checkin=true. Read the indexed results, decide which emails (typically 3-5 most relevant) to discuss, call surface_cards with only those indices, then give one short spoken sentence per email — lead with the sender's first name and the gist. Example: "Sarah wants to reschedule Thursday. Mike sent over the contract. That's it." Never read out subjects verbatim — summarize. If there's nothing new, say so in one sentence.
-- IMPORTANT: Whenever you are about to use any tool, ALWAYS include a brief spoken acknowledgment (2-5 words) as a text block in the SAME response as your tool calls. Examples: "Sure, on it." "Let me check." "Finding his email." "On it." This text is played to the user immediately while the tools run — without it the user hears silence and thinks nothing is happening."""
+- Call classify_intent on every turn where you give a spoken response without doing other agentic work.
+- For recall_update_item and calendar_create: speak the proposed action first without calling the tool. Wait for the user to confirm next turn, then execute.
+- You cannot send emails — only save drafts. If the user asks to send, draft it and tell them it's saved as a draft.
+- IMPORTANT: Whenever you are about to use any tool, ALWAYS include a brief spoken acknowledgment (2-5 words) as a text block in the SAME response as your tool calls. Examples: "Sure, on it." "Let me check." "On it." This text is played immediately while tools run — without it the user hears silence."""
 
 SYSTEM_PROMPT_BLOCKS = [
     {"type": "text", "text": SYSTEM_PROMPT_IDENTITY, "cache_control": {"type": "ephemeral"}},
@@ -138,8 +131,11 @@ async def run_agentic_loop(
     """
     # Import here to avoid circular imports at module load time
     from tools import TOOL_DEFINITIONS, TOOL_REGISTRY
+    from session_store import save_session, load_session
 
-    history = agentic_sessions.setdefault(session_id, [])
+    if session_id not in agentic_sessions:
+        agentic_sessions[session_id] = load_session(session_id)
+    history = agentic_sessions[session_id]
 
     augmented_user = _augment_user_turn(user_text, rag_context)
     history.append({"role": "user", "content": augmented_user})
@@ -182,6 +178,7 @@ async def run_agentic_loop(
             # Store simplified final turn in history
             history.append({"role": "assistant", "content": spoken or "(done)"})
             agentic_sessions[session_id] = history
+            save_session(session_id, history)
             break
 
         if response.stop_reason == "tool_use" and tool_use_blocks:
@@ -232,6 +229,7 @@ async def run_agentic_loop(
             # stop_reason is something unexpected — bail out
             history.append({"role": "assistant", "content": spoken or "(done)"})
             agentic_sessions[session_id] = history
+            save_session(session_id, history)
             break
 
     else:

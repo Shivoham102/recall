@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useRecorder } from "../hooks/useRecorder";
 import { VoiceButton } from "./VoiceButton";
 import { ChatHistory, Turn } from "./ChatHistory";
-import { capture, playAudio } from "../services/api";
+import { captureStream, playAudio } from "../services/api";
 
 const HOTKEY = "Ctrl+Shift+Space";
 
@@ -46,30 +46,57 @@ export function FloatingWindow() {
   }, []);
 
   const handleStop = useCallback(async () => {
+    let blob: Blob;
     try {
-      const blob = await recorder.stop();
-
-      setTurns((prev) => [...prev, { role: "user", text: "…" }]);
-
-      const resp = await capture(blob, sessionId);
-
-      setTurns((prev) => {
-        const next = [...prev];
-        next[next.length - 1] = {
-          role: "user",
-          text: resp.transcript,
-          intentType: resp.intent_type,
-        };
-        return [...next, { role: "assistant", text: resp.response_text }];
-      });
-
-      playAudio(resp.audio_base64);
+      blob = await recorder.stop();
     } catch (e) {
       setError(String(e));
-    } finally {
+      recorder.reset();
+      return;
+    }
+
+    const userTurnIdx = turns.length;
+    setTurns((prev) => [...prev, { role: "user", text: "…" }]);
+
+    try {
+      let spokenText = "";
+      let audiob64 = "";
+
+      recorder.setSpeaking();
+
+      for await (const event of captureStream(blob, sessionId)) {
+        if (event.type === "transcript") {
+          setTurns((prev) => {
+            const next = [...prev];
+            next[userTurnIdx] = { ...next[userTurnIdx], text: event.text };
+            return next;
+          });
+        } else if (event.type === "metadata") {
+          setTurns((prev) => {
+            const next = [...prev];
+            next[userTurnIdx] = { ...next[userTurnIdx], intentType: event.intent_type };
+            return next;
+          });
+        } else if (event.type === "ack_audio") {
+          playAudio(event.audio_base64);
+        } else if (event.type === "spoken") {
+          spokenText = event.text;
+        } else if (event.type === "audio") {
+          audiob64 = event.audio_base64;
+        } else if (event.type === "done") {
+          setTurns((prev) => [...prev, { role: "assistant", text: spokenText }]);
+          if (audiob64) {
+            playAudio(audiob64, () => recorder.reset());
+          } else {
+            recorder.reset();
+          }
+        }
+      }
+    } catch (e) {
+      setError(String(e));
       recorder.reset();
     }
-  }, [recorder, sessionId]);
+  }, [recorder, sessionId, turns.length]);
 
   return (
     <div className="floating-window">

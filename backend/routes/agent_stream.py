@@ -23,11 +23,15 @@ def _fmt_context(items: list[dict]) -> str:
 def _parse_due_at(due_hint: str | None) -> str | None:
     if not due_hint:
         return None
+    from datetime import timezone as _tz
     parsed = dateparser.parse(
         due_hint,
         settings={"PREFER_DATES_FROM": "future", "RETURN_AS_TIMEZONE_AWARE": False},
     )
-    return parsed.isoformat() if parsed else None
+    if not parsed:
+        return None
+    # parsed is naive (local time) — convert to UTC so Supabase stores the right moment
+    return parsed.astimezone(_tz.utc).isoformat()
 
 
 def _sse(event: dict) -> str:
@@ -36,15 +40,20 @@ def _sse(event: dict) -> str:
 
 @router.post("/capture/stream")
 async def capture_stream(
-    audio: UploadFile = File(...),
     session_id: str = Form(...),
+    audio: UploadFile = File(None),
+    text: str = Form(None),
 ):
-    audio_bytes = await audio.read()
-
-    try:
-        transcript = transcribe(audio_bytes, audio.content_type or "audio/webm")
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=f"STT failed: {e}")
+    if text and text.strip():
+        transcript = text.strip()
+    elif audio:
+        audio_bytes = await audio.read()
+        try:
+            transcript = transcribe(audio_bytes, audio.content_type or "audio/webm")
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"STT failed: {e}")
+    else:
+        raise HTTPException(status_code=422, detail="Either audio or text must be provided")
 
     if not transcript:
         raise HTTPException(status_code=422, detail="Empty transcript")
@@ -68,8 +77,10 @@ async def capture_stream(
                     pass
             elif event["type"] == "spoken":
                 spoken = event["text"]
+                yield _sse({"type": "spoken", "text": spoken})
             elif event["type"] == "metadata":
                 metadata = {k: v for k, v in event.items() if k != "type"}
+                yield _sse(event)
             else:
                 yield _sse(event)
 

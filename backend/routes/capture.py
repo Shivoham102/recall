@@ -21,11 +21,14 @@ def _fmt_context(items: list[dict]) -> str:
 def _parse_due_at(due_hint: str | None) -> str | None:
     if not due_hint:
         return None
+    from datetime import timezone as _tz
     parsed = dateparser.parse(
         due_hint,
         settings={"PREFER_DATES_FROM": "future", "RETURN_AS_TIMEZONE_AWARE": False},
     )
-    return parsed.isoformat() if parsed else None
+    if not parsed:
+        return None
+    return parsed.astimezone(_tz.utc).isoformat()
 
 
 @router.post("/capture")

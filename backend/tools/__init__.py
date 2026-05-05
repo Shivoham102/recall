@@ -38,7 +38,11 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "recall_search",
-        "description": "Semantically search the user's stored recall items. Use this to find context before taking actions.",
+        "description": (
+            "Semantically search the user's stored recall items. "
+            "Use when the user asks about tasks, to-dos, pending items, blockers, or anything they've previously told you. "
+            "After searching, always call surface_tasks with the indices of items you will mention."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -114,10 +118,13 @@ if _google_tools_available:
             "name": "gmail_get_updates",
             "description": (
                 "Fetch recent emails from the inbox, filtered to real people (no newsletters or automated mail). "
-                "Use when the user asks for an update, a briefing, or 'what's new'. "
-                "Set since_last_checkin=true when the user says 'since we last checked in' or similar. "
+                "Use whenever the user asks about their email or wants a briefing — including 'any updates from my email', "
+                "'check my email', 'any new emails', 'what's in my inbox', 'brief me', 'what's new', 'catch me up', "
+                "'morning briefing', or similar. You CAN read email; the only restriction is you cannot send. "
+                "Set since_last_checkin=true when the user says 'since last time' or 'since we checked in'. "
                 "Emails are returned with numeric indices [0], [1], etc. "
-                "After reading the results, call surface_cards with the indices of the emails you will discuss."
+                "After reading the results, call surface_cards with the indices of the emails you will discuss. "
+                "Give one spoken sentence per email — lead with the sender's first name and the gist, never read subjects verbatim."
             ),
             "input_schema": {
                 "type": "object",
@@ -171,7 +178,8 @@ if _google_tools_available:
             "name": "gmail_fetch_style_samples",
             "description": (
                 "Fetch a sample of the user's recent sent emails to understand their writing style. "
-                "Call this before drafting any email so you can match their tone, length, and vocabulary exactly."
+                "Always call this before gmail_draft — never skip it. "
+                "Match the user's tone, sentence length, and vocabulary from the samples when writing the body."
             ),
             "input_schema": {
                 "type": "object",
@@ -183,8 +191,11 @@ if _google_tools_available:
         {
             "name": "gmail_draft",
             "description": (
-                "Save a Gmail draft without sending. Use this to show the user the draft content. "
-                "Safe to call immediately — does not send the email."
+                "Save a Gmail draft without sending. "
+                "Required sequence before calling: (1) call gmail_find_contact if you don't have the recipient's email address; "
+                "(2) call gmail_fetch_style_samples to read the user's writing style; "
+                "(3) write the body matching that style — never draft generically. "
+                "Does not send the email."
             ),
             "input_schema": {
                 "type": "object",
@@ -198,7 +209,11 @@ if _google_tools_available:
         },
         {
             "name": "calendar_list",
-            "description": "List upcoming Google Calendar events.",
+            "description": (
+                "List upcoming Google Calendar events. "
+                "Use when the user asks what's on their calendar, their schedule, upcoming meetings, "
+                "or as part of a morning briefing alongside gmail_get_updates and recall_search."
+            ),
             "input_schema": {
                 "type": "object",
                 "properties": {
