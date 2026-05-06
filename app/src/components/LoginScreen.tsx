@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { setAuthToken } from "../hooks/useAuth";
-
-const BASE = "http://localhost:8000";
+import { getBase } from "../services/backend";
 const POLL_TIMEOUT_MS = 3 * 60 * 1000; // auto-cancel after 3 minutes
 
 interface Props {
@@ -32,7 +31,7 @@ export function LoginScreen({ onLogin }: Props) {
   const handleSignIn = async () => {
     try {
       setStatus("waiting");
-      const res = await fetch(`${BASE}/auth/url`);
+      const res = await fetch(`${await getBase()}/auth/url`);
       if (!res.ok) throw new Error("Backend unavailable — is the server running?");
       const { url, state } = await res.json();
 
@@ -41,7 +40,7 @@ export function LoginScreen({ onLogin }: Props) {
       // Poll every 2 s for JWT
       pollRef.current = setInterval(async () => {
         try {
-          const pollRes = await fetch(`${BASE}/auth/poll?state=${state}`);
+          const pollRes = await fetch(`${await getBase()}/auth/poll?state=${state}`);
           const data = await pollRes.json();
           if (data.ready && data.token) {
             stopPolling();

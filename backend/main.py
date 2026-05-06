@@ -1,5 +1,6 @@
 import os
 import sys
+import socket
 import pathlib
 from dotenv import load_dotenv
 
@@ -25,7 +26,7 @@ app = FastAPI(title="Recall Backend")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:1420", "tauri://localhost"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -51,7 +52,30 @@ def health():
     return {"status": "ok"}
 
 
+def _find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        return s.getsockname()[1]
+
+
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("BACKEND_PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+
+    _requested = int(os.environ.get("BACKEND_PORT", 0))
+
+    for _attempt in range(5):
+        port = _requested or _find_free_port()
+        try:
+            os.environ["BACKEND_PORT"] = str(port)
+            print(f"PORT:{port}", flush=True)
+            if getattr(sys, "frozen", False):
+                uvicorn.run(app, host="127.0.0.1", port=port, reload=False)
+            else:
+                uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)
+            break
+        except OSError as e:
+            if "address already in use" in str(e).lower() and not _requested:
+                continue
+            raise
+    else:
+        raise RuntimeError("Could not bind to a free port after 5 attempts")

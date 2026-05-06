@@ -15,7 +15,9 @@ os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 router = APIRouter()
 
 _CREDENTIALS_FILE = pathlib.Path(__file__).parent.parent / "credentials.json"
-_REDIRECT_URI = "http://localhost:8000/auth/callback"
+def _redirect_uri() -> str:
+    port = os.environ.get("BACKEND_PORT", "8000")
+    return f"http://localhost:{port}/auth/callback"
 _TTL = 300  # 5 minutes
 
 SCOPES = [
@@ -56,7 +58,7 @@ def get_auth_url():
     flow = Flow.from_client_secrets_file(
         str(_CREDENTIALS_FILE),
         scopes=SCOPES,
-        redirect_uri=_REDIRECT_URI,
+        redirect_uri=_redirect_uri(),
     )
     auth_url, state = flow.authorization_url(
         access_type="offline",

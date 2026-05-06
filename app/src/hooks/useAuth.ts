@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
+import { getBase } from "../services/backend";
 
-const BASE = "http://localhost:8000";
 export const TOKEN_KEY = "recall_auth_token";
 
 export interface AuthUser {
@@ -35,15 +35,18 @@ export function useAuth() {
       return;
     }
     try {
-      const res = await fetch(`${BASE}/auth/me`, {
+      const base = await getBase();
+      const res = await fetch(`${base}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error("invalid");
-      const data = await res.json();
-      setUser(data);
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem(TOKEN_KEY);
+        setUser(null);
+      } else if (res.ok) {
+        setUser(await res.json());
+      }
     } catch {
-      localStorage.removeItem(TOKEN_KEY);
-      setUser(null);
+      // network error / backend not ready — keep token, don't log out
     } finally {
       setIsLoading(false);
     }

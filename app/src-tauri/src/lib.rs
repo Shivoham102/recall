@@ -4,9 +4,16 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     LogicalPosition, Manager,
 };
-use tauri_plugin_shell::{process::CommandChild, ShellExt};
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::ShellExt;
 
 struct BackendProcess(Mutex<Option<CommandChild>>);
+struct BackendPort(Mutex<Option<u16>>);
+
+#[tauri::command]
+fn get_backend_port(state: tauri::State<'_, BackendPort>) -> Option<u16> {
+    *state.0.lock().unwrap()
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -15,15 +22,42 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![get_backend_port])
         .setup(|app| {
-            // Spawn Python backend sidecar (graceful — dev mode runs backend separately)
-            let backend_child: Option<CommandChild> = app
-                .shell()
-                .sidecar("recall-backend")
-                .ok()
-                .and_then(|cmd| cmd.spawn().ok())
-                .map(|(_rx, child)| child);
-            app.manage(BackendProcess(Mutex::new(backend_child)));
+            app.manage(BackendPort(Mutex::new(None)));
+            let port_state = app.handle().clone();
+
+            if let Ok(sidecar) = app.shell().sidecar("recall-backend") {
+                if let Ok((rx, child)) = sidecar.spawn() {
+                    app.manage(BackendProcess(Mutex::new(Some(child))));
+                    tauri::async_runtime::spawn(async move {
+                        let mut rx = rx;
+                        let mut buf = String::new();
+                        while let Some(event) = rx.recv().await {
+                            if let CommandEvent::Stdout(chunk) = event {
+                                buf.push_str(&String::from_utf8_lossy(&chunk));
+                                while let Some(pos) = buf.find('\n') {
+                                    let line = buf[..pos].trim().to_string();
+                                    buf = buf[pos + 1..].to_string();
+                                    if let Some(port_str) = line.strip_prefix("PORT:") {
+                                        if let Ok(port) = port_str.parse::<u16>() {
+                                            *port_state
+                                                .state::<BackendPort>()
+                                                .0
+                                                .lock()
+                                                .unwrap() = Some(port);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                } else {
+                    app.manage(BackendProcess(Mutex::new(None)));
+                }
+            } else {
+                app.manage(BackendProcess(Mutex::new(None)));
+            }
 
             // Position the orb at bottom-center of the primary monitor
             if let Some(orb) = app.get_webview_window("orb") {
@@ -104,6 +138,19 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(child) = app_handle
+                    .state::<BackendProcess>()
+                    .0
+                    .lock()
+                    .unwrap()
+                    .take()
+                {
+                    let _ = child.kill();
+                }
+            }
+        });
 }

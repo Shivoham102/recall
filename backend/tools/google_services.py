@@ -63,6 +63,8 @@ def _save_last_checkin(ts: datetime) -> None:
 
 
 def _relative_time(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     delta = datetime.now(timezone.utc) - dt
     minutes = int(delta.total_seconds() / 60)
     if minutes < 60:

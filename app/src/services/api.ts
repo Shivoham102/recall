@@ -1,6 +1,5 @@
 import { getAuthHeader } from "../hooks/useAuth";
-
-const BASE = "http://localhost:8000";
+import { getBase } from "./backend";
 
 export type StreamEvent =
   | { type: "transcript"; text: string }
@@ -16,7 +15,7 @@ export type StreamEvent =
   | { type: "done" };
 
 async function* _streamEvents(form: FormData): AsyncGenerator<StreamEvent> {
-  const res = await fetch(`${BASE}/capture/stream`, {
+  const res = await fetch(`${await getBase()}/capture/stream`, {
     method: "POST",
     body: form,
     headers: getAuthHeader(),
@@ -101,7 +100,7 @@ export async function capture(
   const form = new FormData();
   form.append("audio", audioBlob, "recording.webm");
   form.append("session_id", sessionId);
-  const res = await fetch(`${BASE}/capture`, {
+  const res = await fetch(`${await getBase()}/capture`, {
     method: "POST",
     body: form,
     headers: getAuthHeader(),
@@ -114,7 +113,7 @@ export async function capture(
 }
 
 export async function queryText(text: string, sessionId: string) {
-  const res = await fetch(`${BASE}/query`, {
+  const res = await fetch(`${await getBase()}/query`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeader() },
     body: JSON.stringify({ text, session_id: sessionId }),
@@ -128,7 +127,7 @@ export async function getItems(params?: {
   has_due_hint?: boolean;
   limit?: number;
 }): Promise<RecallItem[]> {
-  const url = new URL(`${BASE}/items`);
+  const url = new URL(`${await getBase()}/items`);
   if (params?.status) url.searchParams.set("status", params.status);
   if (params?.has_due_hint) url.searchParams.set("has_due_hint", "true");
   if (params?.limit) url.searchParams.set("limit", String(params.limit));
@@ -141,7 +140,7 @@ export async function updateItem(
   id: string,
   update: { status?: string; due_hint?: string },
 ): Promise<RecallItem> {
-  const res = await fetch(`${BASE}/items/${id}`, {
+  const res = await fetch(`${await getBase()}/items/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...getAuthHeader() },
     body: JSON.stringify(update),
@@ -164,20 +163,20 @@ export interface DueReminder {
 }
 
 export async function getPendingReminders(): Promise<PendingReminder[]> {
-  const res = await fetch(`${BASE}/reminders/pending`, { headers: getAuthHeader() });
+  const res = await fetch(`${await getBase()}/reminders/pending`, { headers: getAuthHeader() });
   if (!res.ok) throw new Error(`reminders/pending failed: ${res.status}`);
   return res.json();
 }
 
 export async function checkDueReminders(): Promise<DueReminder[]> {
-  const res = await fetch(`${BASE}/reminders/due`, { headers: getAuthHeader() });
+  const res = await fetch(`${await getBase()}/reminders/due`, { headers: getAuthHeader() });
   if (!res.ok) throw new Error(`reminders/due failed: ${res.status}`);
   return res.json();
 }
 
 export async function dismissReminders(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
-  await fetch(`${BASE}/reminders/dismiss`, {
+  await fetch(`${await getBase()}/reminders/dismiss`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeader() },
     body: JSON.stringify({ ids }),

@@ -8,7 +8,7 @@ a = Analysis(
     pathex=['.'],
     binaries=[],
     datas=[
-        ('.env', '.'),
+        ('../.env', '.'),
         ('credentials.json', '.'),
     ],
     hiddenimports=[

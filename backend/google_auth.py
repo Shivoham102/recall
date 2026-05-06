@@ -46,7 +46,7 @@ def get_credentials_for_user(user_id: str) -> Credentials:
     if data.get("google_token_expiry"):
         expiry = datetime.fromisoformat(
             data["google_token_expiry"].replace("Z", "+00:00")
-        )
+        ).replace(tzinfo=None)  # google-auth compares with naive datetime.utcnow()
 
     client_id, client_secret = _load_client_secrets()
 
