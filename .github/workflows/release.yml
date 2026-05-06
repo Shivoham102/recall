@@ -33,11 +33,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Write secrets to backend files
-        working-directory: backend
         shell: bash
         run: |
-          printf '%s' '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
-          printf 'ANTHROPIC_API_KEY=%s\n' '${{ secrets.ANTHROPIC_API_KEY }}' >> .env
+          printf '%s' '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > backend/credentials.json
+          printf 'ANTHROPIC_API_KEY=%s\n' '${{ secrets.ANTHROPIC_API_KEY }}' > .env
           printf 'OPENAI_API_KEY=%s\n' '${{ secrets.OPENAI_API_KEY }}' >> .env
           printf 'SUPABASE_URL=%s\n' '${{ secrets.SUPABASE_URL }}' >> .env
           printf 'SUPABASE_ANON_KEY=%s\n' '${{ secrets.SUPABASE_ANON_KEY }}' >> .env
