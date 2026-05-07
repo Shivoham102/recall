@@ -5,10 +5,6 @@ import {
   captureStream,
   playAudio,
   getOrCreateSessionId,
-  getCartesiaToken,
-  subscribeToUIEvents,
-  USE_CARTESIA_LINE,
-  type UIEventPayload,
 } from "../../services/api";
 import { useRecorder } from "../../hooks/useRecorder";
 import { scheduleReminder } from "../../services/reminderScheduler";
@@ -83,18 +79,6 @@ const STEP_LABELS: Record<string, string> = {
   file_create:               "creating file",
   classify_intent:           "classifying",
 };
-
-// ── Audio helper ─────────────────────────────────────────────────────────────
-
-function arrayBufferToBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let str = "";
-  const CHUNK = 8192;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    str += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(str);
-}
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
@@ -215,9 +199,9 @@ export function AgentTab() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns]);
 
-  // ── Legacy SSE flow ──────────────────────────────────────────────────────
+  // ── SSE flow ─────────────────────────────────────────────────────────────
 
-  const handleLegacyCapture = useCallback(async (blob: Blob) => {
+  const handleCapture = useCallback(async (blob: Blob) => {
     const userTurnIdx = turns.length;
     const assistantTurnIdx = userTurnIdx + 1;
 
@@ -334,183 +318,6 @@ export function AgentTab() {
     }
   }, [recorder, sessionId, turns.length]);
 
-  // ── Cartesia Line WS flow ────────────────────────────────────────────────
-
-  const handleCartesiaCapture = useCallback(async (blob: Blob) => {
-    const userTurnIdx = turns.length;
-    const assistantTurnIdx = userTurnIdx + 1;
-
-    setTurns((prev) => [
-      ...prev,
-      { role: "user", text: "…" },
-      { role: "assistant", text: "", steps: [], pending: true },
-    ]);
-
-    try {
-      const { access_token, agent_id, user_id } = await getCartesiaToken();
-
-      // Subscribe to Realtime events — cards arrive out-of-band from voice stream
-      const unsub = subscribeToUIEvents(user_id, (ev: UIEventPayload) => {
-        setTurns((prev) => {
-          const next = [...prev];
-          if (next[assistantTurnIdx] === undefined) return next;
-          const asst = { ...next[assistantTurnIdx] };
-          if (ev.type === "surface_tasks" && Array.isArray(ev.payload?.items)) {
-            asst.taskCards = ev.payload.items as TaskCard[];
-          }
-          if (ev.type === "surface_cards" && Array.isArray(ev.payload?.items)) {
-            asst.emailCards = ev.payload.items as EmailCard[];
-          }
-          next[assistantTurnIdx] = asst;
-          return next;
-        });
-      });
-
-      const audioCtx = new AudioContext();
-      let nextPlayTime = audioCtx.currentTime;
-
-      // Connect to Cartesia voice agent
-      const wsUrl = `wss://api.cartesia.ai/agents/stream/${agent_id}?token=${access_token}&cartesia-version=2025-04-16`;
-      const ws = new WebSocket(wsUrl);
-
-      await new Promise<void>((resolve, reject) => {
-        ws.onopen = () => resolve();
-        ws.onerror = () => reject(new Error("WebSocket connection failed"));
-      });
-
-      ws.send(JSON.stringify({
-        event: "start",
-        config: { input_format: "pcm_s16le_16000" },
-        metadata: { user_id },
-      }));
-
-      recorder.setSpeaking();
-
-      // Resample blob audio from browser rate (48kHz) to 16kHz PCM s16le
-      const arrayBuf = await blob.arrayBuffer();
-      const rawBuf = await audioCtx.decodeAudioData(arrayBuf);
-      const targetSampleRate = 16000;
-      const offline = new OfflineAudioContext(
-        1,
-        Math.ceil(rawBuf.length * targetSampleRate / rawBuf.sampleRate),
-        targetSampleRate,
-      );
-      const src = offline.createBufferSource();
-      src.buffer = rawBuf;
-      src.connect(offline.destination);
-      src.start();
-      const resampled = await offline.startRendering();
-      const pcm = resampled.getChannelData(0);
-      const s16 = new Int16Array(pcm.length);
-      for (let i = 0; i < pcm.length; i++) {
-        s16[i] = Math.max(-32768, Math.min(32767, Math.round(pcm[i] * 32767)));
-      }
-
-      ws.send(JSON.stringify({
-        event: "media_input",
-        media: { payload: arrayBufferToBase64(s16.buffer) },
-      }));
-      ws.send(JSON.stringify({ event: "input_ended" }));
-
-      await new Promise<void>((resolve, reject) => {
-        ws.onmessage = async (msg) => {
-          let data: Record<string, unknown>;
-          try { data = JSON.parse(msg.data as string); } catch { return; }
-
-          if (data.event === "transcript" && data.text) {
-            setTurns((prev) => {
-              const next = [...prev];
-              next[userTurnIdx] = { ...next[userTurnIdx], text: data.text as string };
-              return next;
-            });
-          }
-
-          if (data.event === "tool_call" && data.name) {
-            setTurns((prev) => {
-              const next = [...prev];
-              const asst = { ...next[assistantTurnIdx] };
-              asst.steps = [...(asst.steps ?? []), { name: data.name as string, summary: "", pending: true }];
-              next[assistantTurnIdx] = asst;
-              return next;
-            });
-          }
-
-          if (data.event === "tool_result" && data.name) {
-            setTurns((prev) => {
-              const next = [...prev];
-              const asst = { ...next[assistantTurnIdx] };
-              const steps = [...(asst.steps ?? [])];
-              const idx = [...steps].reverse().findIndex((s) => s.name === data.name && s.pending);
-              if (idx !== -1) {
-                const realIdx = steps.length - 1 - idx;
-                steps[realIdx] = { ...steps[realIdx], summary: (data.summary as string) ?? "", pending: false };
-              }
-              asst.steps = steps;
-              next[assistantTurnIdx] = asst;
-              return next;
-            });
-          }
-
-          if (data.event === "media_output") {
-            const payload = (data as { media?: { payload?: string } }).media?.payload;
-            if (payload) {
-              try {
-                const bytes = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
-                const decoded = await audioCtx.decodeAudioData(bytes.buffer);
-                const source = audioCtx.createBufferSource();
-                source.buffer = decoded;
-                source.connect(audioCtx.destination);
-                const startAt = Math.max(audioCtx.currentTime, nextPlayTime);
-                source.start(startAt);
-                nextPlayTime = startAt + decoded.duration;
-              } catch {
-                // audio chunk failed to decode — skip without error
-              }
-            }
-          }
-
-          if (data.event === "text_output" && data.text) {
-            setTurns((prev) => {
-              const next = [...prev];
-              next[assistantTurnIdx] = { ...next[assistantTurnIdx], text: data.text as string };
-              return next;
-            });
-          }
-
-          if (data.event === "done" || data.event === "call_ended") {
-            setTurns((prev) => {
-              const next = [...prev];
-              next[assistantTurnIdx] = { ...next[assistantTurnIdx], pending: false };
-              return next;
-            });
-            ws.close();
-            resolve();
-          }
-        };
-
-        ws.onerror = () => reject(new Error("WebSocket error"));
-        ws.onclose = (e) => {
-          if (!e.wasClean) reject(new Error("WebSocket closed unexpectedly"));
-          else resolve();
-        };
-      });
-
-      unsub();
-      recorder.reset();
-    } catch (e) {
-      console.error(e);
-      setTurns((prev) => {
-        const next = [...prev];
-        if (next[turns.length + 1] !== undefined) {
-          next[turns.length + 1] = { ...next[turns.length + 1], text: "Something went wrong.", pending: false };
-        }
-        return next;
-      });
-      setOrbError(true);
-      setTimeout(() => { setOrbError(false); recorder.reset(); }, 2000);
-    }
-  }, [recorder, turns.length]);
-
   // ── Dispatch ─────────────────────────────────────────────────────────────
 
   const handleStop = useCallback(async () => {
@@ -523,13 +330,8 @@ export function AgentTab() {
       setTimeout(() => { setOrbError(false); recorder.reset(); }, 2000);
       return;
     }
-
-    if (USE_CARTESIA_LINE) {
-      await handleCartesiaCapture(blob);
-    } else {
-      await handleLegacyCapture(blob);
-    }
-  }, [recorder, handleLegacyCapture, handleCartesiaCapture]);
+    await handleCapture(blob);
+  }, [recorder, handleCapture]);
 
   const lastToggleMs = useRef(0);
   const handleToggle = useCallback(() => {

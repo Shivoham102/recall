@@ -1,8 +1,5 @@
-import os
-import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
-from auth import get_current_user
 
 router = APIRouter()
 
@@ -27,7 +24,6 @@ _AUTH_CALLBACK_HTML = """<!DOCTYPE html>
     <p>You can close this window.</p>
   </div>
   <script>
-    // Forward tokens from URL hash to the desktop app via deep link
     const hash = window.location.hash.slice(1);
     if (hash) {
       const a = document.createElement('a');
@@ -42,23 +38,3 @@ _AUTH_CALLBACK_HTML = """<!DOCTYPE html>
 @router.get("/auth/callback", response_class=HTMLResponse)
 async def auth_callback():
     return HTMLResponse(_AUTH_CALLBACK_HTML)
-
-
-@router.get("/cartesia-token")
-async def get_cartesia_token(user: dict = Depends(get_current_user)):
-    """Issue a short-lived Cartesia access token for the authenticated user."""
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://api.cartesia.ai/access-token",
-            headers={
-                "Authorization": f"Bearer {os.environ['CARTESIA_API_KEY']}",
-                "Cartesia-Version": "2026-03-01",
-            },
-            json={"expires_in": 300},
-        )
-        resp.raise_for_status()
-    return {
-        "access_token": resp.json()["access_token"],
-        "agent_id": os.environ["CARTESIA_AGENT_ID"],
-        "user_id": user["sub"],
-    }

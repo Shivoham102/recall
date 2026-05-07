@@ -1,4 +1,5 @@
 import json
+import os
 import pathlib
 from datetime import datetime, timezone
 from google.oauth2.credentials import Credentials
@@ -19,7 +20,11 @@ _TOKEN_FILE = pathlib.Path(__file__).parent / "token.json"
 
 
 def _load_client_secrets() -> tuple[str, str]:
-    """Return (client_id, client_secret) from credentials.json."""
+    """Return (client_id, client_secret) from env vars or credentials.json."""
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    if client_id and client_secret:
+        return client_id, client_secret
     with open(_CREDENTIALS_FILE) as f:
         data = json.load(f)
     inner = data.get("installed") or data.get("web")

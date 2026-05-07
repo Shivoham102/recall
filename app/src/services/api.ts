@@ -1,9 +1,5 @@
 import { getAuthHeader } from "../hooks/useAuth";
 import { getBase } from "./backend";
-import { supabase } from "./supabase";
-
-export const USE_CARTESIA_LINE =
-  (import.meta as { env?: Record<string, string> }).env?.VITE_USE_CARTESIA_LINE === "true";
 
 export type StreamEvent =
   | { type: "transcript"; text: string }
@@ -196,45 +192,3 @@ export function getOrCreateSessionId(): string {
   return id;
 }
 
-// ── Cartesia Line helpers ──────────────────────────────────────────────────
-
-export interface CartesiaTokenResponse {
-  access_token: string;
-  agent_id: string;
-  user_id: string;
-}
-
-export async function getCartesiaToken(): Promise<CartesiaTokenResponse> {
-  const res = await fetch(`${await getBase()}/cartesia-token`, {
-    headers: await getAuthHeader(),
-  });
-  if (!res.ok) throw new Error(`cartesia-token failed: ${res.status}`);
-  return res.json();
-}
-
-// ── Supabase Realtime UI-event subscription ────────────────────────────────
-
-export type UIEventPayload =
-  | { type: "surface_tasks"; payload: { items: unknown[] } }
-  | { type: "surface_cards"; payload: { items: unknown[] } };
-
-export function subscribeToUIEvents(
-  userId: string,
-  onEvent: (e: UIEventPayload) => void,
-): () => void {
-  const channel = supabase
-    .channel(`ui_events:${userId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "ui_events",
-        filter: `user_id=eq.${userId}`,
-      },
-      (payload) => onEvent(payload.new as UIEventPayload),
-    )
-    .subscribe();
-
-  return () => { supabase.removeChannel(channel); };
-}

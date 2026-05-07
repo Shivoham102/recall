@@ -1,23 +1,28 @@
 import base64
 import os
+from cartesia import AsyncCartesia
 
-from openai import AsyncOpenAI
-
-_client: AsyncOpenAI | None = None
-VOICE = os.environ.get("OPENAI_TTS_VOICE", "nova")
+_client: AsyncCartesia | None = None
 
 
-def _get_client() -> AsyncOpenAI:
+def _get_client() -> AsyncCartesia:
     global _client
     if _client is None:
-        _client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        _client = AsyncCartesia(api_key=os.environ["CARTESIA_API_KEY"])
     return _client
 
 
 async def synthesize(text: str) -> str:
-    resp = await _get_client().audio.speech.create(
-        model="tts-1",
-        voice=VOICE,
-        input=text,
+    voice_id = os.environ["CARTESIA_VOICE_ID"]
+    audio_iter = await _get_client().tts.bytes(
+        model_id="sonic-2",
+        transcript=text,
+        voice={"mode": "id", "id": voice_id},
+        output_format={
+            "container": "mp3",
+            "bit_rate": 128000,
+            "sample_rate": 44100,
+        },
     )
-    return base64.b64encode(resp.content).decode()
+    chunks = [chunk async for chunk in audio_iter]
+    return base64.b64encode(b"".join(chunks)).decode()

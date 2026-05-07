@@ -1,4 +1,6 @@
 .env
+.env.local
+.env.*.local
 __pycache__/
 *.pyc
 *.pyo
@@ -19,6 +21,14 @@ Thumbs.db
 backend/credentials.json
 backend/token.json
 backend/last_checkin.json
+
+# Cursor / Claude local settings
+.claude/settings.local.json
+.cursor/
+
+# Local env overrides
+app/.env.local
+app/.env
 
 # Cartesia CLI state
 .cartesia/

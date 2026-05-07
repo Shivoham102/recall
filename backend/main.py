@@ -20,15 +20,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from routes.items import router as items_router
 from routes.reminders import router as reminders_router
 from routes.voice import router as voice_router
-
-# Local-only routes require faster_whisper — not available on Vercel
-try:
-    from routes.capture import router as capture_router
-    from routes.query import router as query_router
-    from routes.agent_stream import router as agent_stream_router
-    _local_routes = True
-except ImportError:
-    _local_routes = False
+from routes.capture import router as capture_router
+from routes.query import router as query_router
+from routes.agent_stream import router as agent_stream_router
 
 app = FastAPI(title="Recall Backend")
 
@@ -39,15 +33,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-if _local_routes:
-    app.include_router(capture_router)
-    app.include_router(query_router)
-    app.include_router(agent_stream_router)
+app.include_router(capture_router)
+app.include_router(query_router)
+app.include_router(agent_stream_router)
 app.include_router(items_router)
 app.include_router(reminders_router)
 app.include_router(voice_router)
-
-# Legacy auth router (routes/auth.py) not mounted — Supabase Auth handles login now.
 
 
 @app.get("/health")

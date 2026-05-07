@@ -46,6 +46,7 @@ export function LoginScreen({ onLogin }: Props) {
         const params = new URLSearchParams(fragment);
         const accessToken = params.get("access_token");
         const refreshToken = params.get("refresh_token");
+        const providerToken = params.get("provider_token");
         const providerRefreshToken = params.get("provider_refresh_token");
 
         if (!accessToken || !refreshToken) {
@@ -71,6 +72,10 @@ export function LoginScreen({ onLogin }: Props) {
             id: data.session.user.id,
             email: data.session.user.email,
             google_refresh_token: providerRefreshToken,
+            google_access_token: providerToken ?? null,
+            google_token_expiry: providerToken
+              ? new Date(Date.now() + 3600 * 1000).toISOString()
+              : null,
           }, { onConflict: "id" });
         }
 
