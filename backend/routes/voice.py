@@ -54,7 +54,7 @@ async def get_cartesia_token(user: dict = Depends(get_current_user)):
                 "Authorization": f"Bearer {os.environ['CARTESIA_API_KEY']}",
                 "Cartesia-Version": "2026-03-01",
             },
-            json={"expiresIn": 300},
+            json={"expires_in": 300},
         )
         resp.raise_for_status()
     return {

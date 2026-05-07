@@ -74,6 +74,8 @@ export function LoginScreen({ onLogin }: Props) {
           }, { onConflict: "id" });
         }
 
+        appWindow.show();
+        appWindow.setFocus();
         onLogin();
       });
 
