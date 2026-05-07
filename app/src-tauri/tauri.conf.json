@@ -40,12 +40,16 @@
                                  "csp":  null
                              }
             },
+    "plugins":  {
+                    "deep-link":  {
+                                      "desktop":  {
+                                                      "schemes":  ["recall"]
+                                                  }
+                                  }
+                },
     "bundle":  {
                    "active":  true,
                    "targets":  "all",
-                   "externalBin":  [
-                                       "binaries/recall-backend"
-                                   ],
                    "icon":  [
                                 "icons/32x32.png",
                                 "icons/128x128.png",

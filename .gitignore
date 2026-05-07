@@ -20,6 +20,9 @@ backend/credentials.json
 backend/token.json
 backend/last_checkin.json
 
+# Cartesia CLI state
+.cartesia/
+
 # PyInstaller build output
 backend/dist/
 backend/build/

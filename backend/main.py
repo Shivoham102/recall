@@ -14,13 +14,12 @@ else:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes.auth import router as auth_router
 from routes.capture import router as capture_router
 from routes.query import router as query_router
 from routes.items import router as items_router
 from routes.reminders import router as reminders_router
 from routes.agent_stream import router as agent_stream_router
-from stt import get_model
+from routes.voice import router as voice_router
 
 app = FastAPI(title="Recall Backend")
 
@@ -31,20 +30,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth_router)
 app.include_router(capture_router)
 app.include_router(query_router)
 app.include_router(items_router)
 app.include_router(reminders_router)
 app.include_router(agent_stream_router)
+app.include_router(voice_router)
 
-
-@app.on_event("startup")
-async def startup():
-    try:
-        get_model()  # warm faster-whisper so first request isn't slow
-    except Exception as e:
-        print(f"Warning: failed to preload STT model: {e}", file=sys.stderr)
+# Legacy auth router (routes/auth.py) not mounted — Supabase Auth handles login now.
 
 
 @app.get("/health")

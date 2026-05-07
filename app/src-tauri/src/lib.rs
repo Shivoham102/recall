@@ -5,6 +5,7 @@ use tauri::{
     LogicalPosition, Manager,
 };
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_shell::ShellExt;
 
 struct BackendProcess(Mutex<Option<CommandChild>>);
@@ -18,12 +19,15 @@ fn get_backend_port(state: tauri::State<'_, BackendPort>) -> Option<u16> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![get_backend_port])
         .setup(|app| {
+            let _ = app.deep_link().register_all();
             app.manage(BackendPort(Mutex::new(None)));
             let port_state = app.handle().clone();
 

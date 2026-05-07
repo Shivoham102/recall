@@ -9,11 +9,17 @@ export function resetBackendBase() {
 export function getBase(): Promise<string> {
   if (!_basePromise) {
     _basePromise = (async () => {
-      // Web-only dev: set VITE_BACKEND_URL=http://localhost:8000 in .env.local
+      // Cloud deployment — use Vercel base URL if set
+      const vercelUrl = (import.meta as { env?: Record<string, string> }).env
+        ?.VITE_API_BASE;
+      if (vercelUrl) return vercelUrl;
+
+      // Web-only dev override
       const devUrl = (import.meta as { env?: Record<string, string> }).env
         ?.VITE_BACKEND_URL;
       if (devUrl) return devUrl;
 
+      // Local Tauri sidecar — poll until backend reports its port
       for (let i = 0; i < 50; i++) {
         const port = await invoke<number | null>("get_backend_port").catch(
           () => null,

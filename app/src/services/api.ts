@@ -1,5 +1,9 @@
 import { getAuthHeader } from "../hooks/useAuth";
 import { getBase } from "./backend";
+import { supabase } from "./supabase";
+
+export const USE_CARTESIA_LINE =
+  (import.meta as { env?: Record<string, string> }).env?.VITE_USE_CARTESIA_LINE === "true";
 
 export type StreamEvent =
   | { type: "transcript"; text: string }
@@ -18,7 +22,7 @@ async function* _streamEvents(form: FormData): AsyncGenerator<StreamEvent> {
   const res = await fetch(`${await getBase()}/capture/stream`, {
     method: "POST",
     body: form,
-    headers: getAuthHeader(),
+    headers: await getAuthHeader(),
   });
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => String(res.status));
@@ -103,7 +107,7 @@ export async function capture(
   const res = await fetch(`${await getBase()}/capture`, {
     method: "POST",
     body: form,
-    headers: getAuthHeader(),
+    headers: await getAuthHeader(),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => String(res.status));
@@ -115,7 +119,7 @@ export async function capture(
 export async function queryText(text: string, sessionId: string) {
   const res = await fetch(`${await getBase()}/query`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
     body: JSON.stringify({ text, session_id: sessionId }),
   });
   if (!res.ok) throw new Error(`query failed: ${res.status}`);
@@ -131,7 +135,7 @@ export async function getItems(params?: {
   if (params?.status) url.searchParams.set("status", params.status);
   if (params?.has_due_hint) url.searchParams.set("has_due_hint", "true");
   if (params?.limit) url.searchParams.set("limit", String(params.limit));
-  const res = await fetch(url.toString(), { headers: getAuthHeader() });
+  const res = await fetch(url.toString(), { headers: await getAuthHeader() });
   if (!res.ok) throw new Error(`getItems failed: ${res.status}`);
   return res.json();
 }
@@ -142,7 +146,7 @@ export async function updateItem(
 ): Promise<RecallItem> {
   const res = await fetch(`${await getBase()}/items/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
     body: JSON.stringify(update),
   });
   if (!res.ok) throw new Error(`updateItem failed: ${res.status}`);
@@ -163,13 +167,13 @@ export interface DueReminder {
 }
 
 export async function getPendingReminders(): Promise<PendingReminder[]> {
-  const res = await fetch(`${await getBase()}/reminders/pending`, { headers: getAuthHeader() });
+  const res = await fetch(`${await getBase()}/reminders/pending`, { headers: await getAuthHeader() });
   if (!res.ok) throw new Error(`reminders/pending failed: ${res.status}`);
   return res.json();
 }
 
 export async function checkDueReminders(): Promise<DueReminder[]> {
-  const res = await fetch(`${await getBase()}/reminders/due`, { headers: getAuthHeader() });
+  const res = await fetch(`${await getBase()}/reminders/due`, { headers: await getAuthHeader() });
   if (!res.ok) throw new Error(`reminders/due failed: ${res.status}`);
   return res.json();
 }
@@ -178,7 +182,7 @@ export async function dismissReminders(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   await fetch(`${await getBase()}/reminders/dismiss`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
     body: JSON.stringify({ ids }),
   });
 }
@@ -190,4 +194,47 @@ export function getOrCreateSessionId(): string {
     localStorage.setItem("recall_session_id", id);
   }
   return id;
+}
+
+// ── Cartesia Line helpers ──────────────────────────────────────────────────
+
+export interface CartesiaTokenResponse {
+  access_token: string;
+  agent_id: string;
+  user_id: string;
+}
+
+export async function getCartesiaToken(): Promise<CartesiaTokenResponse> {
+  const res = await fetch(`${await getBase()}/cartesia-token`, {
+    headers: await getAuthHeader(),
+  });
+  if (!res.ok) throw new Error(`cartesia-token failed: ${res.status}`);
+  return res.json();
+}
+
+// ── Supabase Realtime UI-event subscription ────────────────────────────────
+
+export type UIEventPayload =
+  | { type: "surface_tasks"; payload: { items: unknown[] } }
+  | { type: "surface_cards"; payload: { items: unknown[] } };
+
+export function subscribeToUIEvents(
+  userId: string,
+  onEvent: (e: UIEventPayload) => void,
+): () => void {
+  const channel = supabase
+    .channel(`ui_events:${userId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "ui_events",
+        filter: `user_id=eq.${userId}`,
+      },
+      (payload) => onEvent(payload.new as UIEventPayload),
+    )
+    .subscribe();
+
+  return () => { supabase.removeChannel(channel); };
 }

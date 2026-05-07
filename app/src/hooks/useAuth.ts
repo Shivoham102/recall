@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { getBase } from "../services/backend";
-
-export const TOKEN_KEY = "recall_auth_token";
+import { supabase } from "../services/supabase";
 
 export interface AuthUser {
   user_id: string;
@@ -9,57 +7,56 @@ export interface AuthUser {
   name: string;
 }
 
-export function getAuthToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setAuthToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
-}
-
-export function getAuthHeader(): Record<string, string> {
-  const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+export async function getAuthHeader(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.access_token) {
+    return { Authorization: `Bearer ${session.access_token}` };
+  }
+  return {};
 }
 
 export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const checkAuth = useCallback(async () => {
+  const syncUser = useCallback(async () => {
     setIsLoading(true);
-    const token = getAuthToken();
-    if (!token) {
-      setUser(null);
-      setIsLoading(false);
-      return;
-    }
-    try {
-      const base = await getBase();
-      const res = await fetch(`${base}/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      setUser({
+        user_id: session.user.id,
+        email: session.user.email ?? "",
+        name: session.user.user_metadata?.full_name ?? session.user.email ?? "",
       });
-      if (res.status === 401 || res.status === 403) {
-        localStorage.removeItem(TOKEN_KEY);
-        setUser(null);
-      } else if (res.ok) {
-        setUser(await res.json());
-      }
-    } catch {
-      // network error / backend not ready — keep token, don't log out
-    } finally {
-      setIsLoading(false);
+    } else {
+      setUser(null);
     }
+    setIsLoading(false);
   }, []);
 
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
+    syncUser();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (session?.user) {
+          setUser({
+            user_id: session.user.id,
+            email: session.user.email ?? "",
+            name: session.user.user_metadata?.full_name ?? session.user.email ?? "",
+          });
+        } else {
+          setUser(null);
+        }
+        setIsLoading(false);
+      },
+    );
+    return () => subscription.unsubscribe();
+  }, [syncUser]);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
     setUser(null);
   }, []);
 
-  return { user, isLoading, logout, refreshAuth: checkAuth };
+  return { user, isLoading, logout, refreshAuth: syncUser };
 }

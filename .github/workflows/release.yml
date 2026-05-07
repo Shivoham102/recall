@@ -16,15 +16,12 @@ jobs:
         include:
           - platform: windows-latest
             rust-target: x86_64-pc-windows-msvc
-            binary-suffix: .exe
             bundle-glob: 'bundle/nsis/*.exe'
           - platform: macos-latest
             rust-target: aarch64-apple-darwin
-            binary-suffix: ''
             bundle-glob: 'bundle/dmg/*.dmg'
           - platform: ubuntu-22.04
             rust-target: x86_64-unknown-linux-gnu
-            binary-suffix: ''
             bundle-glob: 'bundle/appimage/*.AppImage'
 
     runs-on: ${{ matrix.platform }}
@@ -32,15 +29,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Write secrets to backend files
+      - name: Write frontend .env
         shell: bash
         run: |
-          printf '%s' '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > backend/credentials.json
-          printf 'ANTHROPIC_API_KEY=%s\n' '${{ secrets.ANTHROPIC_API_KEY }}' > .env
-          printf 'OPENAI_API_KEY=%s\n' '${{ secrets.OPENAI_API_KEY }}' >> .env
-          printf 'SUPABASE_URL=%s\n' '${{ secrets.SUPABASE_URL }}' >> .env
-          printf 'SUPABASE_ANON_KEY=%s\n' '${{ secrets.SUPABASE_ANON_KEY }}' >> .env
-          printf 'JWT_SECRET=%s\n' '${{ secrets.JWT_SECRET }}' >> .env
+          printf 'VITE_API_BASE=%s\n'          '${{ secrets.VITE_API_BASE }}'          > app/.env
+          printf 'VITE_SUPABASE_URL=%s\n'      '${{ secrets.SUPABASE_URL }}'           >> app/.env
+          printf 'VITE_SUPABASE_ANON_KEY=%s\n' '${{ secrets.SUPABASE_ANON_KEY }}'      >> app/.env
+          printf 'VITE_USE_CARTESIA_LINE=%s\n' 'true'                                  >> app/.env
 
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -48,23 +43,6 @@ jobs:
         with:
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
           version: 1.0
-
-      - name: Setup Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: backend/requirements.txt
-
-      - name: Build Python sidecar with PyInstaller
-        working-directory: backend
-        shell: bash
-        run: |
-          pip install -r requirements.txt pyinstaller
-          pyinstaller recall-backend.spec
-          mkdir -p ../app/src-tauri/binaries
-          cp "dist/recall-backend${{ matrix.binary-suffix }}" \
-             "../app/src-tauri/binaries/recall-backend-${{ matrix.rust-target }}${{ matrix.binary-suffix }}"
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable

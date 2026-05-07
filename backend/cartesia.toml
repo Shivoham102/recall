@@ -1,0 +1,8 @@
+[app]
+name = "recall-voice-agent"
+
+[build]
+cmd = "pip install cartesia-line supabase openai google-api-python-client google-auth-oauthlib httpx python-dotenv PyJWT tomli"
+
+[run]
+cmd = "python main.py"
