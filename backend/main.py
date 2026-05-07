@@ -4,6 +4,9 @@ import socket
 import pathlib
 from dotenv import load_dotenv
 
+# Ensure backend/ is on sys.path so relative imports work on Vercel
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+
 # Must load .env BEFORE importing any routes — they access os.environ at module level
 if getattr(sys, "frozen", False):
     # Running as PyInstaller bundle — load .env from the bundle's extracted dir
