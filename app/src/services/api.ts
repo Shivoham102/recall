@@ -149,10 +149,28 @@ export async function updateItem(
   return res.json();
 }
 
+let _audioQueue: Promise<void> = Promise.resolve();
+
 export function playAudio(base64mp3: string, onEnd?: () => void): void {
-  const audio = new Audio(`data:audio/mpeg;base64,${base64mp3}`);
-  if (onEnd) audio.addEventListener("ended", onEnd);
-  audio.play().catch(console.error);
+  _audioQueue = _audioQueue.then(
+    () =>
+      new Promise<void>((resolve) => {
+        const audio = new Audio(`data:audio/mpeg;base64,${base64mp3}`);
+        const finish = () => {
+          onEnd?.();
+          resolve();
+        };
+        audio.addEventListener("ended", finish);
+        audio.addEventListener("error", (e) => {
+          console.error("Audio playback error:", e);
+          finish();
+        });
+        audio.play().catch((err) => {
+          console.error("Audio play() rejected:", err);
+          finish();
+        });
+      }),
+  );
 }
 
 export interface DueReminder {

@@ -261,6 +261,7 @@ export function AgentTab() {
           });
 
         } else if (event.type === "ack_audio") {
+          console.log("[AgentTab] playing ack_audio, length:", event.audio_base64.length);
           playAudio(event.audio_base64);
 
         } else if (event.type === "spoken") {
@@ -284,6 +285,7 @@ export function AgentTab() {
           dueAt = event.due_at;
 
         } else if (event.type === "audio") {
+          console.log("[AgentTab] received final audio, length:", event.audio_base64.length);
           audiob64 = event.audio_base64;
 
         } else if (event.type === "done") {
@@ -293,8 +295,10 @@ export function AgentTab() {
             return next;
           });
           if (audiob64) {
+            console.log("[AgentTab] playing final audio");
             playAudio(audiob64, () => recorder.reset());
           } else {
+            console.warn("[AgentTab] done but no audio received");
             recorder.reset();
           }
           if (dueAt && itemId) scheduleReminder(itemId, dueAt);

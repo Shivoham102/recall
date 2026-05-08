@@ -65,6 +65,7 @@ export function FloatingWindow() {
       recorder.setSpeaking();
 
       for await (const event of captureStream(blob, sessionId)) {
+        console.log("[FloatingWindow] SSE event:", event.type, event);
         if (event.type === "transcript") {
           setTurns((prev) => {
             const next = [...prev];
@@ -78,16 +79,20 @@ export function FloatingWindow() {
             return next;
           });
         } else if (event.type === "ack_audio") {
+          console.log("[FloatingWindow] playing ack_audio, length:", event.audio_base64.length);
           playAudio(event.audio_base64);
         } else if (event.type === "spoken") {
           spokenText = event.text;
         } else if (event.type === "audio") {
+          console.log("[FloatingWindow] received final audio, length:", event.audio_base64.length);
           audiob64 = event.audio_base64;
         } else if (event.type === "done") {
           setTurns((prev) => [...prev, { role: "assistant", text: spokenText }]);
           if (audiob64) {
+            console.log("[FloatingWindow] playing final audio");
             playAudio(audiob64, () => recorder.reset());
           } else {
+            console.warn("[FloatingWindow] done but no audio received");
             recorder.reset();
           }
         }

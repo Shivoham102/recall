@@ -74,12 +74,12 @@ async def capture_stream(
 
         async for event in run_agentic_loop(session_id, transcript, rag_context):
             if event["type"] == "ack":
-                # Play acknowledgment audio immediately so the user knows the agent heard them
                 try:
                     ack_audio = await synthesize(event["text"])
                     yield _sse({"type": "ack_audio", "audio_base64": ack_audio, "text": event["text"]})
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[TTS] ack synthesis failed: {e}")
+                    yield _sse({"type": "error", "message": f"TTS (ack) failed: {e}"})
             elif event["type"] == "spoken":
                 spoken = event["text"]
                 yield _sse({"type": "spoken", "text": spoken})
@@ -112,8 +112,9 @@ async def capture_stream(
             try:
                 audio_b64 = await synthesize(spoken)
                 yield _sse({"type": "audio", "audio_base64": audio_b64})
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[TTS] final synthesis failed: {e}")
+                yield _sse({"type": "error", "message": f"TTS failed: {e}"})
 
         yield _sse({"type": "done"})
 
