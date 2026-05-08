@@ -38,7 +38,11 @@ SYSTEM_PROMPT_TOOL_RULES = """Tool usage rules:
 - For recall_update_item and calendar_create: speak the proposed action first without calling the tool. Wait for the user to confirm next turn, then execute.
 - You cannot send emails — only save drafts. If the user asks to send, draft it and tell them it's saved as a draft.
 - For email drafting, follow explicit user drafting preferences from the latest turn/session (short, concise, detailed, formal, casual) as highest-priority output constraints.
-- IMPORTANT: Whenever you are about to use any tool, ALWAYS include a brief spoken acknowledgment (2-5 words) as a text block in the SAME response as your tool calls. Examples: "Sure, on it." "Let me check." "On it." This text is played immediately while tools run — without it the user hears silence."""
+- For email drafting, never use em dashes. Prefer full stops, commas, or semicolons to break up sentences.
+- For follow-up/reply requests: call gmail_find_followup_thread first (sent first, inbox fallback). If low confidence/no match, ask one clarifying question and do not draft yet.
+- After a thread is selected, call gmail_get_thread_context before drafting and keep continuity with thread asks/commitments.
+- For follow-up replies, prefer gmail_reply_draft over gmail_draft so the draft stays in the existing thread.
+- IMPORTANT: Before the FIRST tool call in a user request, include a brief spoken acknowledgment (2-5 words) as a text block in the SAME response as the tool call. Examples: "Sure, on it." "Let me check." "On it." Do not repeat acknowledgments for subsequent tool calls in that same request."""
 
 SYSTEM_PROMPT_BLOCKS = [
     {"type": "text", "text": SYSTEM_PROMPT_IDENTITY, "cache_control": {"type": "ephemeral"}},
@@ -187,6 +191,7 @@ async def run_agentic_loop(
 
     metadata = {"intent_type": "note", "should_store": False, "due_hint": None, "reminder_text": None}
     spoken = ""
+    ack_emitted = False
 
     for iteration in range(MAX_AGENT_ITERATIONS):
         yield {"type": "thinking", "text": "Thinking..."}
@@ -224,9 +229,11 @@ async def run_agentic_loop(
             break
 
         if response.stop_reason == "tool_use" and tool_use_blocks:
-            # Emit acknowledgment immediately so the user hears something while tools run.
+            # Emit acknowledgment only once per user request (first tool-use turn).
             # Fall back to "On it." if the model didn't include a text block.
-            yield {"type": "ack", "text": spoken or "On it."}
+            if not ack_emitted:
+                yield {"type": "ack", "text": spoken or "On it."}
+                ack_emitted = True
             spoken = ""  # don't re-use as final response
 
             # Append full assistant turn (preserves tool_use blocks for API)

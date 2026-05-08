@@ -5,8 +5,9 @@ _google_tools_available = False
 try:
     from tools.google_services import (
         gmail_get_updates, surface_cards,
-        gmail_find_contact, gmail_fetch_style_samples,
-        gmail_draft, calendar_list, calendar_create,
+        gmail_find_contact, gmail_find_followup_thread, gmail_get_thread_context,
+        gmail_fetch_style_samples, gmail_draft, gmail_reply_draft,
+        calendar_list, calendar_create,
     )
     _google_tools_available = True
 except ImportError:
@@ -145,7 +146,8 @@ if _google_tools_available:
             "description": (
                 "Display specific emails as visual cards in the UI. "
                 "Call this with the indices of the emails you are about to mention in your spoken response — "
-                "only those emails will be shown as cards. Never surface emails you don't discuss."
+                "only those emails will be shown as cards. Never surface emails you don't discuss. "
+                "Use source='thread_search' when surfacing follow-up thread candidates."
             ),
             "input_schema": {
                 "type": "object",
@@ -154,6 +156,11 @@ if _google_tools_available:
                         "type": "array",
                         "items": {"type": "integer"},
                         "description": "Indices from the gmail_get_updates result, e.g. [0, 2] to show emails 0 and 2",
+                    },
+                    "source": {
+                        "type": "string",
+                        "enum": ["updates", "thread_search"],
+                        "description": "updates for inbox updates, thread_search for follow-up thread candidates",
                     },
                 },
                 "required": ["indices"],
@@ -172,6 +179,39 @@ if _google_tools_available:
                     "company": {"type": "string", "description": "Company or domain to narrow the search, optional"},
                 },
                 "required": ["name"],
+            },
+        },
+        {
+            "name": "gmail_find_followup_thread",
+            "description": (
+                "Find the best existing email thread for a follow-up request. "
+                "Search order: sent first, then inbox fallback. "
+                "Use this when the user asks to follow up/reply/continue a prior email thread. "
+                "If confidence is low or no match, ask one clarification question instead of drafting."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query_text": {"type": "string", "description": "User's follow-up request text"},
+                    "recipient_hint": {"type": "string", "description": "Optional recipient/company hint"},
+                    "lookback_days": {"type": "integer", "description": "Lookback window in days, default 365"},
+                },
+                "required": ["query_text"],
+            },
+        },
+        {
+            "name": "gmail_get_thread_context",
+            "description": (
+                "Fetch and summarize recent messages from a specific Gmail thread for context-grounded follow-ups. "
+                "Call this after selecting a follow-up thread and before drafting the reply."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "thread_id": {"type": "string", "description": "Gmail thread id"},
+                    "max_messages": {"type": "integer", "description": "How many recent messages to include (default 6)"},
+                },
+                "required": ["thread_id"],
             },
         },
         {
@@ -205,6 +245,26 @@ if _google_tools_available:
                     "body": {"type": "string"},
                 },
                 "required": ["to", "subject", "body"],
+            },
+        },
+        {
+            "name": "gmail_reply_draft",
+            "description": (
+                "Save a Gmail reply draft in an existing thread without sending. "
+                "Required sequence before calling: (1) gmail_find_followup_thread, (2) gmail_get_thread_context, "
+                "(3) gmail_fetch_style_samples, then draft a context-grounded reply that also honors explicit style requests."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "thread_id": {"type": "string", "description": "Target Gmail thread id"},
+                    "to": {"type": "string", "description": "Reply recipient email"},
+                    "subject": {"type": "string", "description": "Optional subject override; usually omitted for thread replies"},
+                    "body": {"type": "string"},
+                    "in_reply_to": {"type": "string", "description": "Message-ID from latest thread message"},
+                    "references": {"type": "string", "description": "References header chain"},
+                },
+                "required": ["thread_id", "to", "body"],
             },
         },
         {
@@ -243,8 +303,11 @@ if _google_tools_available:
         "gmail_get_updates": gmail_get_updates,
         "surface_cards": surface_cards,
         "gmail_find_contact": gmail_find_contact,
+        "gmail_find_followup_thread": gmail_find_followup_thread,
+        "gmail_get_thread_context": gmail_get_thread_context,
         "gmail_fetch_style_samples": gmail_fetch_style_samples,
         "gmail_draft": gmail_draft,
+        "gmail_reply_draft": gmail_reply_draft,
         "calendar_list": calendar_list,
         "calendar_create": calendar_create,
     })

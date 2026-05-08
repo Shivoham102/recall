@@ -25,6 +25,11 @@ _GREETING_RE = re.compile(r"^\s*(hi|hello|hey|dear)\b[^\n]{0,100}", re.IGNORECAS
 _FORMAL_WORDS = {"regards", "sincerely", "appreciate", "pleased", "kindly", "thank you"}
 _CASUAL_WORDS = {"hey", "thanks", "quick", "awesome", "yep", "no worries"}
 _CLOSING_CANDIDATES = ("thanks", "thank you", "best", "regards", "cheers", "sincerely")
+_STOP_WORDS = {
+    "a", "an", "the", "to", "for", "and", "or", "but", "with", "on", "in", "at", "of", "by",
+    "is", "it", "this", "that", "these", "those", "be", "am", "are", "was", "were", "as",
+    "about", "follow", "followup", "follow-up", "email", "reply", "thread", "write", "send",
+}
 
 # Sender patterns that indicate automated/newsletter email — skip these
 _NOISE_PATTERNS = re.compile(
@@ -272,6 +277,26 @@ def _make_message(to: str, subject: str, body: str) -> dict:
     return {"raw": raw}
 
 
+def _make_reply_message(
+    to: str,
+    body: str,
+    thread_id: str,
+    subject: str = "",
+    in_reply_to: str = "",
+    references: str = "",
+) -> dict:
+    msg = MIMEText(body)
+    msg["to"] = to
+    if subject:
+        msg["subject"] = subject
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+    if references:
+        msg["References"] = references
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+    return {"raw": raw, "threadId": thread_id}
+
+
 def _load_last_checkin() -> datetime | None:
     try:
         data = json.loads(_CHECKIN_FILE.read_text())
@@ -302,7 +327,45 @@ def _relative_time(dt: datetime) -> str:
 
 # Single-user app — store last email fetch so surface_cards can look up by index
 _last_email_fetch: list = []
+_last_thread_candidate_fetch: list = []
 _style_profile_cache: dict[str, dict] = {}
+
+
+def _extract_keywords(query_text: str) -> list[str]:
+    raw_tokens = re.findall(r"[A-Za-z0-9@._-]+", (query_text or "").lower())
+    tokens: list[str] = []
+    for token in raw_tokens:
+        if len(token) < 3 or token in _STOP_WORDS:
+            continue
+        if token not in tokens:
+            tokens.append(token)
+    return tokens[:8]
+
+
+def _safe_parse_date(date_raw: str) -> datetime | None:
+    try:
+        parsed = email.utils.parsedate_to_datetime(date_raw)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _recency_score(parsed: datetime | None) -> float:
+    if not parsed:
+        return 0.0
+    age_days = max((datetime.now(timezone.utc) - parsed).total_seconds() / 86400.0, 0)
+    # decay from 2.0 to ~0 over a year
+    return max(0.0, 2.0 - (age_days / 180.0))
+
+
+def _confidence_band(score: float) -> str:
+    if score >= 6.5:
+        return "high"
+    if score >= 4.0:
+        return "medium"
+    return "low"
 
 
 async def gmail_get_updates(inp: dict) -> dict:
@@ -413,11 +476,14 @@ async def gmail_get_updates(inp: dict) -> dict:
 async def surface_cards(inp: dict) -> dict:
     """No-op tool that tells the frontend which emails to render as cards.
     The agent calls this with the indices of emails it is about to discuss."""
+    source = inp.get("source", "updates")
     indices = inp.get("indices", [])
-    selected = [_last_email_fetch[i] for i in indices if i < len(_last_email_fetch)]
+    source_items = _last_email_fetch if source != "thread_search" else _last_thread_candidate_fetch
+    selected = [source_items[i] for i in indices if i < len(source_items)]
     return {
         "summary": f"Showing {len(selected)} card(s)",
         "card_type": "emails",
+        "source": source,
         "items_data": selected,
     }
 
@@ -501,6 +567,218 @@ async def gmail_find_contact(inp: dict) -> dict:
         "contacts": formatted,
         "best_match": contacts[0]["email"],
         "best_match_name": contacts[0]["name"],
+    }
+
+
+async def gmail_find_followup_thread(inp: dict) -> dict:
+    """Find relevant follow-up thread using sent-first keyword search with inbox fallback."""
+    query_text = inp.get("query_text", "").strip()
+    recipient_hint = inp.get("recipient_hint", "").strip()
+    lookback_days = max(7, int(inp.get("lookback_days", 365)))
+    keywords = _extract_keywords(query_text)
+
+    after_dt = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    after_epoch = int(after_dt.timestamp())
+
+    def _search() -> list[dict]:
+        svc = _gmail_service()
+        candidates: dict[str, dict] = {}
+        for mailbox in ("sent", "inbox"):
+            query_parts = [f"in:{mailbox}", f"after:{after_epoch}"]
+            if recipient_hint:
+                query_parts.append(f'"{recipient_hint}"')
+            for token in keywords:
+                query_parts.append(f'"{token}"')
+            query = " ".join(query_parts)
+            result = svc.users().messages().list(userId="me", q=query, maxResults=30).execute()
+            messages = result.get("messages", [])
+
+            for msg in messages:
+                detail = svc.users().messages().get(
+                    userId="me",
+                    id=msg["id"],
+                    format="metadata",
+                    metadataHeaders=["From", "To", "Subject", "Date", "Message-ID", "In-Reply-To", "References"],
+                ).execute()
+                headers = {h["name"]: h["value"] for h in detail.get("payload", {}).get("headers", [])}
+                thread_id = detail.get("threadId", "")
+                if not thread_id:
+                    continue
+                from_raw = headers.get("From", "")
+                to_raw = headers.get("To", "")
+                subject = headers.get("Subject", "(no subject)")
+                snippet = detail.get("snippet", "")[:240]
+                date_raw = headers.get("Date", "")
+
+                display_from, addr_from = email.utils.parseaddr(from_raw)
+                display_to, addr_to = email.utils.parseaddr(to_raw)
+                counterparty = display_to or addr_to if mailbox == "sent" else display_from or addr_from
+                haystack = f"{subject} {snippet} {counterparty}".lower()
+                matched_terms = [t for t in keywords if t in haystack]
+                overlap_score = min(len(matched_terms), 4) * 1.6
+                recipient_score = 0.0
+                if recipient_hint:
+                    hint = recipient_hint.lower()
+                    if hint in (counterparty or "").lower():
+                        recipient_score = 2.0
+                    elif hint in haystack:
+                        recipient_score = 1.2
+                recency = _recency_score(_safe_parse_date(date_raw))
+                source_bonus = 0.8 if mailbox == "sent" else 0.2
+                score = overlap_score + recipient_score + recency + source_bonus
+
+                candidate = {
+                    "thread_id": thread_id,
+                    "message_id": msg.get("id", ""),
+                    "subject": subject,
+                    "counterparty": counterparty or "(unknown)",
+                    "snippet": snippet,
+                    "source_mailbox": mailbox,
+                    "matched_terms": matched_terms,
+                    "score": round(score, 2),
+                    "date_raw": date_raw,
+                    "received": _relative_time(_safe_parse_date(date_raw)) if date_raw else "",
+                    "in_reply_to": headers.get("In-Reply-To", ""),
+                    "references": headers.get("References", ""),
+                }
+
+                prev = candidates.get(thread_id)
+                if prev is None or candidate["score"] > prev["score"]:
+                    candidates[thread_id] = candidate
+        return sorted(candidates.values(), key=lambda c: c["score"], reverse=True)
+
+    ranked = await asyncio.to_thread(_search)
+
+    global _last_thread_candidate_fetch
+    _last_thread_candidate_fetch = [
+        {
+            "sender": c["counterparty"],
+            "subject": c["subject"],
+            "snippet": c["snippet"],
+            "received": c["received"],
+            "unread": False,
+            "important": c["source_mailbox"] == "sent",
+        }
+        for c in ranked[:5]
+    ]
+
+    if not ranked:
+        return {
+            "summary": "No matching follow-up thread found. Ask a clarifying question.",
+            "best_match": None,
+            "confidence": "low",
+            "candidates": [],
+            "requires_clarification": True,
+        }
+
+    best = ranked[0]
+    confidence = _confidence_band(best["score"])
+    candidates = [
+        (
+            f"[{idx}] {c['counterparty']}: {c['subject']!r} ({c['received']}) "
+            f"[{c['source_mailbox']}] terms={','.join(c['matched_terms']) or 'none'} score={c['score']}"
+        )
+        for idx, c in enumerate(ranked[:5])
+    ]
+    requires_clarification = confidence == "low"
+    return {
+        "summary": f"Found follow-up thread candidates (confidence: {confidence})",
+        "confidence": confidence,
+        "requires_clarification": requires_clarification,
+        "best_match": {
+            "thread_id": best["thread_id"],
+            "message_id": best["message_id"],
+            "subject": best["subject"],
+            "counterparty": best["counterparty"],
+            "source_mailbox": best["source_mailbox"],
+            "reason": {
+                "matched_terms": best["matched_terms"],
+                "score": best["score"],
+                "timestamp": best["date_raw"],
+            },
+            "in_reply_to": best["in_reply_to"],
+            "references": best["references"],
+        },
+        "candidates": candidates,
+        "candidate_count": len(ranked[:5]),
+        "suggested_surface_indices": list(range(min(len(ranked), 3))),
+    }
+
+
+async def gmail_get_thread_context(inp: dict) -> dict:
+    """Fetch recent messages in a thread and summarize actionable context."""
+    thread_id = inp["thread_id"]
+    max_messages = max(2, min(int(inp.get("max_messages", 6)), 12))
+
+    def _fetch():
+        svc = _gmail_service()
+        thread = svc.users().threads().get(userId="me", id=thread_id, format="full").execute()
+        messages = thread.get("messages", [])
+        # Keep most recent messages to preserve short context window.
+        messages = sorted(messages, key=lambda m: int(m.get("internalDate", "0")), reverse=True)[:max_messages]
+
+        items: list[dict] = []
+        asks: list[str] = []
+        commitments: list[str] = []
+        action_items: list[str] = []
+
+        for msg in messages:
+            payload = msg.get("payload", {})
+            headers = {h["name"]: h["value"] for h in payload.get("headers", [])}
+            from_raw = headers.get("From", "")
+            subject = headers.get("Subject", "(no subject)")
+            date_raw = headers.get("Date", "")
+            body = _strip_quoted(_extract_plain_text(payload))[:1200]
+            lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+
+            for ln in lines:
+                lower_ln = ln.lower()
+                if "?" in ln and len(asks) < 4:
+                    asks.append(ln[:180])
+                if re.search(r"\b(i('| wi)?ll|we('?| wi)?ll|can do|will do)\b", lower_ln) and len(commitments) < 4:
+                    commitments.append(ln[:180])
+                if re.search(r"\b(please|could you|can you|let's|next step|follow up)\b", lower_ln) and len(action_items) < 4:
+                    action_items.append(ln[:180])
+
+            items.append(
+                {
+                    "from": from_raw,
+                    "subject": subject,
+                    "date": date_raw,
+                    "message_id": headers.get("Message-ID", ""),
+                    "in_reply_to": headers.get("In-Reply-To", ""),
+                    "references": headers.get("References", ""),
+                    "body_excerpt": body[:400],
+                }
+            )
+
+        recent_points = []
+        if asks:
+            recent_points.append(f"Asks: {' | '.join(asks[:2])}")
+        if commitments:
+            recent_points.append(f"Commitments: {' | '.join(commitments[:2])}")
+        if action_items:
+            recent_points.append(f"Action items: {' | '.join(action_items[:2])}")
+        summary = " ; ".join(recent_points) if recent_points else "No explicit asks found; continue the latest thread topic."
+
+        latest = items[0] if items else {}
+        return {
+            "messages": items,
+            "summary": summary,
+            "latest_message_id": latest.get("message_id", ""),
+            "latest_in_reply_to": latest.get("in_reply_to", ""),
+            "latest_references": latest.get("references", ""),
+        }
+
+    data = await asyncio.to_thread(_fetch)
+    return {
+        "summary": "Loaded thread context for follow-up drafting",
+        "thread_id": thread_id,
+        "context_summary": data["summary"],
+        "recent_messages": data["messages"],
+        "latest_message_id": data["latest_message_id"],
+        "in_reply_to": data["latest_in_reply_to"],
+        "references": data["latest_references"],
     }
 
 
@@ -601,6 +879,71 @@ async def gmail_draft(inp: dict) -> dict:
     return {
         "summary": f"Draft saved (to: {to}, subject: {subject!r})",
         "draft_id": draft_id,
+        "to": to,
+        "subject": subject,
+        "applied_preferences": draft_preferences,
+    }
+
+
+async def gmail_reply_draft(inp: dict) -> dict:
+    """Create a Gmail draft reply within an existing thread."""
+    thread_id = inp["thread_id"]
+    to = inp["to"]
+    subject = inp.get("subject", "")
+    body = inp["body"]
+    in_reply_to = inp.get("in_reply_to", "")
+    references = inp.get("references", "")
+
+    user_id = context.current_user_id.get("")
+    draft_preferences = context.current_draft_preferences.get({})
+
+    if not context.current_style_ready.get(False):
+        if user_id:
+            profile, source = await asyncio.to_thread(_ensure_style_profile, user_id, False)
+            if profile and source in {"memory_cache", "supabase"}:
+                context.current_style_ready.set(True)
+                context.current_style_profile.set(
+                    {
+                        "source": source,
+                        "last_refreshed_at": profile.get("last_refreshed_at"),
+                        "style_features": profile.get("style_features", {}),
+                    }
+                )
+        if not context.current_style_ready.get(False):
+            if user_id:
+                _record_style_event(user_id, "reply_draft_blocked_missing_style_profile", {"thread_id": thread_id})
+            return {
+                "summary": "Style profile unavailable. Call gmail_fetch_style_samples first.",
+                "error": True,
+                "requires": "gmail_fetch_style_samples",
+            }
+
+    def _create():
+        svc = _gmail_service()
+        draft = svc.users().drafts().create(
+            userId="me",
+            body={"message": _make_reply_message(to, body, thread_id, subject, in_reply_to, references)},
+        ).execute()
+        return draft["id"]
+
+    draft_id = await asyncio.to_thread(_create)
+    if user_id:
+        _record_style_event(
+            user_id,
+            "reply_draft_created",
+            {
+                "thread_id": thread_id,
+                "subject_length": len(subject),
+                "body_length": len(body),
+                "has_preferences": bool(draft_preferences),
+                "preferences": draft_preferences,
+            },
+        )
+
+    return {
+        "summary": f"Reply draft saved in thread {thread_id[:12]}...",
+        "draft_id": draft_id,
+        "thread_id": thread_id,
         "to": to,
         "subject": subject,
         "applied_preferences": draft_preferences,
