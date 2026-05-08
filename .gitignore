@@ -29,6 +29,7 @@ backend/last_checkin.json
 # Local env overrides
 app/.env.local
 app/.env
+app/.env.development
 
 # Cartesia CLI state
 .cartesia/
