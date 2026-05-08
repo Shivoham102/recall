@@ -20,7 +20,7 @@ async def synthesize(text: str) -> str:
         voice={"mode": "id", "id": voice_id},
         output_format={
             "container": "mp3",
-            "bit_rate": 128,
+            "bit_rate": 128000,
             "sample_rate": 44100,
         },
     )
