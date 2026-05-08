@@ -84,7 +84,7 @@ export function LoginScreen({ onLogin }: Props) {
         onLogin();
       });
 
-      const apiBase = import.meta.env.VITE_API_BASE ?? "https://recall-seven-livid.vercel.app";
+      const apiBase = import.meta.env.VITE_API_BASE || "https://recall-seven-livid.vercel.app";
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
