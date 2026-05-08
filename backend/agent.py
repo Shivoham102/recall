@@ -1,11 +1,13 @@
 import os
 import json
 import asyncio
+import re
 from datetime import datetime
 from typing import AsyncGenerator
 from anthropic import Anthropic, AsyncAnthropic
 from anthropic.types import TextBlock, ToolUseBlock
 from dotenv import load_dotenv
+import context
 
 load_dotenv()
 
@@ -35,6 +37,7 @@ SYSTEM_PROMPT_TOOL_RULES = """Tool usage rules:
 - Call classify_intent on every turn where you give a spoken response without doing other agentic work.
 - For recall_update_item and calendar_create: speak the proposed action first without calling the tool. Wait for the user to confirm next turn, then execute.
 - You cannot send emails — only save drafts. If the user asks to send, draft it and tell them it's saved as a draft.
+- For email drafting, follow explicit user drafting preferences from the latest turn/session (short, concise, detailed, formal, casual) as highest-priority output constraints.
 - IMPORTANT: Whenever you are about to use any tool, ALWAYS include a brief spoken acknowledgment (2-5 words) as a text block in the SAME response as your tool calls. Examples: "Sure, on it." "Let me check." "On it." This text is played immediately while tools run — without it the user hears silence."""
 
 SYSTEM_PROMPT_BLOCKS = [
@@ -70,11 +73,41 @@ intent_type rules:
 - update: user changing status — do NOT store"""
 
 
-def _augment_user_turn(user_text: str, rag_context: str) -> str:
+_DRAFT_PREFS_BY_SESSION: dict[str, dict] = {}
+_SHORT_RE = re.compile(r"\b(short|concise|brief|quick|one[- ]?liner)\b", re.IGNORECASE)
+_DETAILED_RE = re.compile(r"\b(detailed|detail|thorough|comprehensive|longer)\b", re.IGNORECASE)
+_FORMAL_RE = re.compile(r"\b(formal|professional|business[- ]?like)\b", re.IGNORECASE)
+_CASUAL_RE = re.compile(r"\b(casual|friendly|relaxed|conversational)\b", re.IGNORECASE)
+
+
+def _extract_draft_preferences(user_text: str) -> dict:
+    text = user_text.strip()
+    if not text:
+        return {}
+
+    preferences: dict[str, str] = {}
+    if _SHORT_RE.search(text):
+        preferences["length"] = "short"
+    elif _DETAILED_RE.search(text):
+        preferences["length"] = "detailed"
+
+    if _FORMAL_RE.search(text):
+        preferences["tone"] = "formal"
+    elif _CASUAL_RE.search(text):
+        preferences["tone"] = "casual"
+
+    return preferences
+
+
+def _augment_user_turn(user_text: str, rag_context: str, draft_preferences: dict | None = None) -> str:
     now = datetime.now().strftime("%A, %B %d %Y %H:%M")
+    draft_pref_line = ""
+    if draft_preferences:
+        draft_pref_line = f"[Draft preferences: {json.dumps(draft_preferences)}]\n"
     return (
         f"[Date: {now}]\n"
         f"[Memory context:\n{rag_context}]\n\n"
+        f"{draft_pref_line}"
         f"User: {user_text}"
     )
 
@@ -137,7 +170,16 @@ async def run_agentic_loop(
         agentic_sessions[session_id] = load_session(session_id)
     history = agentic_sessions[session_id]
 
-    augmented_user = _augment_user_turn(user_text, rag_context)
+    extracted_prefs = _extract_draft_preferences(user_text)
+    session_prefs = dict(_DRAFT_PREFS_BY_SESSION.get(session_id, {}))
+    if extracted_prefs:
+        session_prefs.update(extracted_prefs)
+        _DRAFT_PREFS_BY_SESSION[session_id] = session_prefs
+    context.current_draft_preferences.set(session_prefs)
+    context.current_style_ready.set(False)
+    context.current_style_profile.set({})
+
+    augmented_user = _augment_user_turn(user_text, rag_context, session_prefs)
     history.append({"role": "user", "content": augmented_user})
 
     if len(history) > MAX_TURNS * 2:

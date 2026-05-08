@@ -38,6 +38,25 @@ CREATE TABLE IF NOT EXISTS recall_items (
 
 CREATE INDEX IF NOT EXISTS recall_items_embedding_idx ON recall_items USING hnsw (embedding vector_cosine_ops);
 
+-- ── Email style profiles (weekly personalization cache) ───────────────────────
+CREATE TABLE IF NOT EXISTS email_style_profiles (
+  user_id            text PRIMARY KEY REFERENCES users(id),
+  sample_count       int NOT NULL DEFAULT 0,
+  samples_preview    text NOT NULL DEFAULT '',
+  style_features     jsonb NOT NULL DEFAULT '{}'::jsonb,
+  last_refreshed_at  timestamptz,
+  next_refresh_at    timestamptz,
+  updated_at         timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS email_style_events (
+  id          bigserial PRIMARY KEY,
+  user_id     text REFERENCES users(id),
+  event_type  text NOT NULL,
+  details     jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at  timestamptz DEFAULT now()
+);
+
 -- ── RAG search (filters by user_id when provided) ────────────────────────────
 CREATE OR REPLACE FUNCTION match_recall_items(
   query_embedding vector(1536),

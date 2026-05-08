@@ -2,6 +2,7 @@ import asyncio
 import base64
 import email.utils
 import json
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 import pathlib
@@ -12,8 +13,18 @@ from googleapiclient.discovery import build
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 from google_auth import get_credentials, get_credentials_for_user
 import context
+from db import get_admin_db
 
 _CHECKIN_FILE = pathlib.Path(__file__).parent.parent / "last_checkin.json"
+_STYLE_PROFILE_TABLE = "email_style_profiles"
+_STYLE_EVENT_TABLE = "email_style_events"
+_STYLE_SAMPLE_TARGET = 10
+_STYLE_STALE_DAYS = 8
+
+_GREETING_RE = re.compile(r"^\s*(hi|hello|hey|dear)\b[^\n]{0,100}", re.IGNORECASE)
+_FORMAL_WORDS = {"regards", "sincerely", "appreciate", "pleased", "kindly", "thank you"}
+_CASUAL_WORDS = {"hey", "thanks", "quick", "awesome", "yep", "no worries"}
+_CLOSING_CANDIDATES = ("thanks", "thank you", "best", "regards", "cheers", "sincerely")
 
 # Sender patterns that indicate automated/newsletter email — skip these
 _NOISE_PATTERNS = re.compile(
@@ -37,6 +48,220 @@ def _gmail_service():
 
 def _calendar_service():
     return build("calendar", "v3", credentials=_get_creds(), cache_discovery=False)
+
+
+def _gmail_service_for_user(user_id: str):
+    creds = get_credentials_for_user(user_id)
+    return build("gmail", "v1", credentials=creds, cache_discovery=False)
+
+
+def _to_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _style_is_stale(ts: str | None) -> bool:
+    if not ts:
+        return True
+    try:
+        parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        parsed_utc = _to_utc(parsed)
+        if parsed_utc is None:
+            return True
+        return datetime.now(timezone.utc) - parsed_utc > timedelta(days=_STYLE_STALE_DAYS)
+    except Exception:
+        return True
+
+
+def _extract_closing(text: str) -> str:
+    tail = [ln.strip() for ln in text.splitlines()[-6:] if ln.strip()]
+    for line in reversed(tail):
+        lowered = line.lower()
+        if any(token in lowered for token in _CLOSING_CANDIDATES):
+            return line
+    return ""
+
+
+def _build_style_features(samples: list[str]) -> dict:
+    if not samples:
+        return {
+            "sample_count": 0,
+            "avg_words_per_sentence": 0,
+            "avg_char_count": 0,
+            "greeting_patterns": [],
+            "closing_patterns": [],
+            "formality": "balanced",
+        }
+
+    greetings: list[str] = []
+    closings: list[str] = []
+    sentence_lengths: list[int] = []
+    char_counts: list[int] = []
+    formal_hits = 0
+    casual_hits = 0
+
+    for sample in samples:
+        body = sample.strip()
+        if not body:
+            continue
+        char_counts.append(len(body))
+
+        greeting_match = _GREETING_RE.search(body)
+        if greeting_match:
+            greetings.append(greeting_match.group(0).strip())
+
+        closing = _extract_closing(body)
+        if closing:
+            closings.append(closing)
+
+        words = re.findall(r"[A-Za-z']+", body.lower())
+        formal_hits += sum(1 for token in words if token in _FORMAL_WORDS)
+        casual_hits += sum(1 for token in words if token in _CASUAL_WORDS)
+
+        for sentence in re.split(r"[.!?]+", body):
+            sentence_words = re.findall(r"[A-Za-z']+", sentence)
+            if sentence_words:
+                sentence_lengths.append(len(sentence_words))
+
+    if formal_hits > casual_hits * 1.2:
+        formality = "formal"
+    elif casual_hits > formal_hits * 1.2:
+        formality = "casual"
+    else:
+        formality = "balanced"
+
+    greeting_counts = [pattern for pattern, _ in Counter(greetings).most_common(3)]
+    closing_counts = [pattern for pattern, _ in Counter(closings).most_common(3)]
+    avg_words_per_sentence = round(sum(sentence_lengths) / len(sentence_lengths), 1) if sentence_lengths else 0
+    avg_char_count = round(sum(char_counts) / len(char_counts), 1) if char_counts else 0
+
+    return {
+        "sample_count": len(samples),
+        "avg_words_per_sentence": avg_words_per_sentence,
+        "avg_char_count": avg_char_count,
+        "greeting_patterns": greeting_counts,
+        "closing_patterns": closing_counts,
+        "formality": formality,
+    }
+
+
+def _record_style_event(user_id: str, event_type: str, details: dict) -> None:
+    payload = {
+        "user_id": user_id,
+        "event_type": event_type,
+        "details": details,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        get_admin_db().table(_STYLE_EVENT_TABLE).insert(payload).execute()
+    except Exception:
+        # Optional telemetry table; failures should never break user flows.
+        pass
+
+
+def _fetch_sent_style_samples_for_user(user_id: str, count: int = _STYLE_SAMPLE_TARGET) -> list[str]:
+    svc = _gmail_service_for_user(user_id)
+    result = svc.users().messages().list(
+        userId="me", q="in:sent -in:chats", maxResults=count * 4
+    ).execute()
+    messages = result.get("messages", [])
+
+    samples: list[str] = []
+    for msg in messages:
+        if len(samples) >= count:
+            break
+        detail = svc.users().messages().get(userId="me", id=msg["id"], format="full").execute()
+        body = _strip_quoted(_extract_plain_text(detail.get("payload", {})))
+        if len(body.strip()) < 40:
+            continue
+        samples.append(body[:900])
+    return samples
+
+
+def _load_style_profile_from_db(user_id: str) -> dict | None:
+    try:
+        res = (
+            get_admin_db()
+            .table(_STYLE_PROFILE_TABLE)
+            .select("user_id, style_features, sample_count, samples_preview, last_refreshed_at, next_refresh_at")
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        return res.data if res and res.data else None
+    except Exception:
+        return None
+
+
+def _save_style_profile(user_id: str, samples: list[str], style_features: dict) -> dict:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "user_id": user_id,
+        "sample_count": len(samples),
+        "samples_preview": "\n\n---\n\n".join(samples[:_STYLE_SAMPLE_TARGET]),
+        "style_features": style_features,
+        "last_refreshed_at": now.isoformat(),
+        "next_refresh_at": (now + timedelta(days=7)).isoformat(),
+        "updated_at": now.isoformat(),
+    }
+    try:
+        get_admin_db().table(_STYLE_PROFILE_TABLE).upsert(payload, on_conflict="user_id").execute()
+    except Exception:
+        pass
+    return payload
+
+
+def _build_and_store_style_profile_for_user(user_id: str, count: int = _STYLE_SAMPLE_TARGET) -> dict:
+    samples = _fetch_sent_style_samples_for_user(user_id, count)
+    style_features = _build_style_features(samples)
+    profile = _save_style_profile(user_id, samples, style_features)
+    _style_profile_cache[user_id] = profile
+    _record_style_event(
+        user_id,
+        "style_profile_refreshed",
+        {"sample_count": len(samples), "formality": style_features.get("formality", "balanced")},
+    )
+    return profile
+
+
+def _ensure_style_profile(user_id: str, allow_live_refresh: bool) -> tuple[dict | None, str]:
+    cached = _style_profile_cache.get(user_id)
+    if cached and not _style_is_stale(cached.get("last_refreshed_at")):
+        _record_style_event(user_id, "style_profile_cache_hit", {"source": "memory"})
+        return cached, "memory_cache"
+
+    db_profile = _load_style_profile_from_db(user_id)
+    if db_profile and not _style_is_stale(db_profile.get("last_refreshed_at")):
+        _style_profile_cache[user_id] = db_profile
+        _record_style_event(user_id, "style_profile_cache_hit", {"source": "supabase"})
+        return db_profile, "supabase"
+
+    _record_style_event(user_id, "style_profile_cache_miss", {"allow_live_refresh": allow_live_refresh})
+    if not allow_live_refresh:
+        return db_profile, "stale_or_missing"
+
+    try:
+        refreshed = _build_and_store_style_profile_for_user(user_id, _STYLE_SAMPLE_TARGET)
+        return refreshed, "live_refresh"
+    except Exception as exc:
+        _record_style_event(user_id, "style_profile_refresh_failed", {"error": str(exc)})
+        return db_profile, "refresh_failed"
+
+
+def _render_style_guidance(style_features: dict) -> str:
+    if not style_features:
+        return ""
+    greetings = ", ".join(style_features.get("greeting_patterns", [])[:2]) or "none"
+    closings = ", ".join(style_features.get("closing_patterns", [])[:2]) or "none"
+    return (
+        f"Formality: {style_features.get('formality', 'balanced')}\n"
+        f"Avg words/sentence: {style_features.get('avg_words_per_sentence', 0)}\n"
+        f"Common greetings: {greetings}\n"
+        f"Common closings: {closings}"
+    )
 
 
 def _make_message(to: str, subject: str, body: str) -> dict:
@@ -77,6 +302,7 @@ def _relative_time(dt: datetime) -> str:
 
 # Single-user app — store last email fetch so surface_cards can look up by index
 _last_email_fetch: list = []
+_style_profile_cache: dict[str, dict] = {}
 
 
 async def gmail_get_updates(inp: dict) -> dict:
@@ -279,40 +505,48 @@ async def gmail_find_contact(inp: dict) -> dict:
 
 
 async def gmail_fetch_style_samples(inp: dict) -> dict:
-    """Fetch recent sent emails as writing style examples for the agent to imitate."""
-    count = min(int(inp.get("count", 8)), 15)
+    """Return the user's style profile (weekly cached in Supabase, with live fallback)."""
+    count = min(int(inp.get("count", _STYLE_SAMPLE_TARGET)), 15)
+    user_id = context.current_user_id.get("")
+    if not user_id:
+        context.current_style_ready.set(False)
+        context.current_style_profile.set({})
+        return {"summary": "No authenticated user context for style profile", "samples": "", "error": True}
 
-    def _fetch():
-        svc = _gmail_service()
-        result = svc.users().messages().list(
-            userId="me", q="in:sent -in:chats", maxResults=count * 3
-        ).execute()
-        messages = result.get("messages", [])
+    profile, source = await asyncio.to_thread(_ensure_style_profile, user_id, True)
+    if profile is None:
+        context.current_style_ready.set(False)
+        context.current_style_profile.set({})
+        return {"summary": "No sent emails found for style reference", "samples": "", "error": True}
 
-        samples = []
-        for msg in messages:
-            if len(samples) >= count:
-                break
-            detail = svc.users().messages().get(userId="me", id=msg["id"], format="full").execute()
-            headers = {h["name"]: h["value"] for h in detail["payload"]["headers"]}
-            subject = headers.get("Subject", "(no subject)")
+    # If the cached profile is stale and count differs, refresh to honor requested sample count.
+    if source in {"stale_or_missing", "refresh_failed"}:
+        try:
+            profile = await asyncio.to_thread(_build_and_store_style_profile_for_user, user_id, count)
+            source = "live_refresh"
+        except Exception:
+            pass
 
-            body = _strip_quoted(_extract_plain_text(detail["payload"]))
-            if len(body.strip()) < 40:
-                continue  # skip one-liners and empty replies
-
-            samples.append(f"Subject: {subject}\n{body[:600]}")
-
-        return samples
-
-    samples = await asyncio.to_thread(_fetch)
-
-    if not samples:
-        return {"summary": "No sent emails found for style reference", "samples": ""}
-
+    style_features = profile.get("style_features") or {}
+    samples = profile.get("samples_preview") or ""
+    context.current_style_ready.set(True)
+    context.current_style_profile.set(
+        {
+            "source": source,
+            "last_refreshed_at": profile.get("last_refreshed_at"),
+            "style_features": style_features,
+        }
+    )
+    _record_style_event(
+        user_id,
+        "style_profile_loaded_for_draft",
+        {"source": source, "sample_count": profile.get("sample_count", 0)},
+    )
     return {
-        "summary": f"Fetched {len(samples)} sent emails for style reference",
-        "samples": "\n\n---\n\n".join(samples),
+        "summary": f"Loaded style profile from {source}",
+        "samples": samples,
+        "style_features": style_features,
+        "style_guidance": _render_style_guidance(style_features),
     }
 
 
@@ -320,6 +554,29 @@ async def gmail_draft(inp: dict) -> dict:
     to = inp["to"]
     subject = inp["subject"]
     body = inp["body"]
+    user_id = context.current_user_id.get("")
+    draft_preferences = context.current_draft_preferences.get({})
+
+    if not context.current_style_ready.get(False):
+        if user_id:
+            profile, source = await asyncio.to_thread(_ensure_style_profile, user_id, False)
+            if profile and source in {"memory_cache", "supabase"}:
+                context.current_style_ready.set(True)
+                context.current_style_profile.set(
+                    {
+                        "source": source,
+                        "last_refreshed_at": profile.get("last_refreshed_at"),
+                        "style_features": profile.get("style_features", {}),
+                    }
+                )
+        if not context.current_style_ready.get(False):
+            if user_id:
+                _record_style_event(user_id, "draft_blocked_missing_style_profile", {"to": to})
+            return {
+                "summary": "Style profile unavailable. Call gmail_fetch_style_samples first.",
+                "error": True,
+                "requires": "gmail_fetch_style_samples",
+            }
 
     def _create():
         svc = _gmail_service()
@@ -330,11 +587,62 @@ async def gmail_draft(inp: dict) -> dict:
         return draft["id"]
 
     draft_id = await asyncio.to_thread(_create)
+    if user_id:
+        _record_style_event(
+            user_id,
+            "draft_created",
+            {
+                "subject_length": len(subject),
+                "body_length": len(body),
+                "has_preferences": bool(draft_preferences),
+                "preferences": draft_preferences,
+            },
+        )
     return {
         "summary": f"Draft saved (to: {to}, subject: {subject!r})",
         "draft_id": draft_id,
         "to": to,
         "subject": subject,
+        "applied_preferences": draft_preferences,
+    }
+
+
+async def refresh_style_profiles_weekly(inp: dict) -> dict:
+    """Cron entrypoint: refresh style profiles for users with connected Google accounts."""
+    max_users = max(1, int(inp.get("max_users", 200)))
+
+    def _refresh():
+        users_res = (
+            get_admin_db()
+            .table("users")
+            .select("id")
+            .not_.is_("google_access_token", "null")
+            .limit(max_users)
+            .execute()
+        )
+        users = users_res.data or []
+        refreshed = 0
+        failed = 0
+        errors: list[str] = []
+        for row in users:
+            user_id = row.get("id")
+            if not user_id:
+                continue
+            try:
+                _build_and_store_style_profile_for_user(user_id, _STYLE_SAMPLE_TARGET)
+                refreshed += 1
+            except Exception as exc:
+                failed += 1
+                errors.append(f"{user_id}: {exc}")
+        return len(users), refreshed, failed, errors[:5]
+
+    total, refreshed, failed, errors = await asyncio.to_thread(_refresh)
+    return {
+        "summary": f"Weekly style refresh complete. total={total}, refreshed={refreshed}, failed={failed}",
+        "total_users": total,
+        "refreshed": refreshed,
+        "failed": failed,
+        "errors": errors,
     }
 
 

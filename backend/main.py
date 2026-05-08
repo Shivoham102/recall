@@ -23,6 +23,7 @@ from routes.voice import router as voice_router
 from routes.capture import router as capture_router
 from routes.query import router as query_router
 from routes.agent_stream import router as agent_stream_router
+from routes.cron import router as cron_router
 
 app = FastAPI(title="Recall Backend")
 
@@ -39,6 +40,7 @@ app.include_router(agent_stream_router)
 app.include_router(items_router)
 app.include_router(reminders_router)
 app.include_router(voice_router)
+app.include_router(cron_router)
 
 
 @app.get("/health")

@@ -177,14 +177,14 @@ if _google_tools_available:
         {
             "name": "gmail_fetch_style_samples",
             "description": (
-                "Fetch a sample of the user's recent sent emails to understand their writing style. "
+                "Load the user's email style profile (weekly precomputed from top sent emails, with fallback refresh). "
                 "Always call this before gmail_draft — never skip it. "
-                "Match the user's tone, sentence length, and vocabulary from the samples when writing the body."
+                "Use the returned style_guidance and samples to match tone, sentence length, and vocabulary."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "count": {"type": "integer", "description": "Number of emails to fetch, default 8, max 15"},
+                    "count": {"type": "integer", "description": "Target sample size for fallback refresh, default 10, max 15"},
                 },
             },
         },
@@ -193,8 +193,8 @@ if _google_tools_available:
             "description": (
                 "Save a Gmail draft without sending. "
                 "Required sequence before calling: (1) call gmail_find_contact if you don't have the recipient's email address; "
-                "(2) call gmail_fetch_style_samples to read the user's writing style; "
-                "(3) write the body matching that style — never draft generically. "
+                "(2) call gmail_fetch_style_samples so a style profile is loaded; "
+                "(3) write the body matching that style and any explicit user preference (short, concise, detailed, formal, casual) — never draft generically. "
                 "Does not send the email."
             ),
             "input_schema": {

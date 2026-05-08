@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/jobs/refresh-email-style-profiles",
+      "schedule": "0 8 * * 0"
+    }
+  ],
   "builds": [
     {
       "src": "backend/main.py",

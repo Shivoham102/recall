@@ -177,7 +177,9 @@ ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...   # required for server-side weekly style-profile refresh
 BACKEND_PORT=8000
+CRON_SECRET=change-me              # protects weekly Vercel cron endpoint
 CARTESIA_API_KEY=...
 CARTESIA_VOICE_ID=a0e99841-438c-4a64-b679-ae501e7d6091  # find voices at cartesia.ai/voices
 ```
@@ -189,6 +191,8 @@ Open your Supabase project → **SQL Editor** → paste the contents of `db/sche
 This creates:
 - `recall_items` — captured items with pgvector embeddings, due dates, and reminder state
 - `sessions` — persisted conversation history across backend restarts
+- `email_style_profiles` — weekly refreshed writing-style profiles from recent sent emails
+- `email_style_events` — lightweight telemetry for cache/draft quality events
 
 Enable Google OAuth in Supabase: **Authentication → Providers → Google** — add your Google OAuth client ID and secret, and set the callback URL shown there in Google Cloud Console.
 
@@ -235,6 +239,24 @@ To enable inbox reading, email drafting, and calendar tools:
 2. Go to **APIs & Services → Credentials → Create credentials → OAuth 2.0 Client ID** (Desktop app)
 3. Download `credentials.json` and place it in `backend/`
 4. Sign out and sign in again — the new consent screen includes Gmail + Calendar scopes
+
+### 6. Weekly style profile cron (Vercel)
+
+`vercel.json` includes a weekly cron schedule for:
+
+- `GET /jobs/refresh-email-style-profiles`
+
+This cron is required for the low-latency personalized email profile path in production.
+
+Set these Vercel environment variables:
+
+- `CRON_SECRET` — random shared secret for cron endpoint auth
+- `SUPABASE_SERVICE_ROLE_KEY` — server-side access to refresh all users' style profiles
+
+Local development note:
+
+- You can run without cron while iterating locally (the app can still do draft-time fallback refresh),
+  but deployed environments should enable the cron job.
 
 ---
 
