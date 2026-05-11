@@ -23,6 +23,7 @@ from routes.voice import router as voice_router
 from routes.capture import router as capture_router
 from routes.query import router as query_router
 from routes.agent_stream import router as agent_stream_router
+from routes.chat_title import router as chat_title_router
 from routes.cron import router as cron_router
 
 app = FastAPI(title="Recall Backend")
@@ -37,6 +38,7 @@ app.add_middleware(
 app.include_router(capture_router)
 app.include_router(query_router)
 app.include_router(agent_stream_router)
+app.include_router(chat_title_router)
 app.include_router(items_router)
 app.include_router(reminders_router)
 app.include_router(voice_router)

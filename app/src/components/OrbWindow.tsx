@@ -13,10 +13,7 @@ export function OrbWindow() {
   const sessionId = useRef(getOrCreateSessionId()).current;
   const [error, setError] = useState(false);
   const appWindow = useRef(getCurrentWindow()).current;
-
-  // Keep a stable ref to the toggle so the hotkey handler never goes stale
   const handleToggleRef = useRef<() => void>(() => {});
-  // Debounce: ignore repeat-fires when keys are held down
   const lastToggleMs = useRef(0);
 
   const handleStop = useCallback(async () => {
@@ -49,7 +46,7 @@ export function OrbWindow() {
         await appWindow.hide();
       }, 2000);
     }
-  }, [recorder, sessionId, appWindow]);
+  }, [appWindow, recorder, sessionId]);
 
   const handleToggle = useCallback(() => {
     const now = Date.now();
@@ -57,18 +54,15 @@ export function OrbWindow() {
     lastToggleMs.current = now;
 
     if (recorder.state === "idle") {
-      appWindow.show()
-        .then(() => appWindow.setFocus())
-        .then(() => recorder.start())
-        .catch(console.error);
+      appWindow.show().catch(() => {});
+      recorder.start().catch(() => {});
     } else {
-      // Hide immediately on any subsequent press; audio processing continues in background
-      appWindow.hide().catch(console.error);
+      appWindow.hide().catch(() => {});
       if (recorder.state === "recording") {
-        handleStop();
+        void handleStop();
       }
     }
-  }, [recorder, handleStop, appWindow]);
+  }, [appWindow, handleStop, recorder]);
 
   useEffect(() => {
     handleToggleRef.current = handleToggle;
@@ -79,23 +73,20 @@ export function OrbWindow() {
       await unregister(HOTKEY).catch(() => {});
       await register(HOTKEY, () => handleToggleRef.current());
     };
-    setup().catch(console.error);
+    setup().catch(() => {});
     return () => { unregister(HOTKEY).catch(() => {}); };
   }, []);
 
   useEffect(() => {
-    const unlisten = listen<{ audio_base64: string; content: string }>(
-      "recall:reminder",
-      async (e) => {
-        if (recorder.state !== "idle") return;
-        recorder.setSpeaking();
-        await appWindow.show();
-        playAudio(e.payload.audio_base64, async () => {
-          recorder.reset();
-          await appWindow.hide();
-        });
-      },
-    );
+    const unlisten = listen<{ audio_base64: string }>("recall:reminder", async (e) => {
+      if (recorder.state !== "idle") return;
+      recorder.setSpeaking();
+      await appWindow.show();
+      playAudio(e.payload.audio_base64, async () => {
+        recorder.reset();
+        await appWindow.hide();
+      });
+    });
     return () => { unlisten.then((f) => f()); };
   }, [recorder, appWindow]);
 

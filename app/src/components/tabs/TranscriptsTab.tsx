@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { getItems, RecallItem } from "../../services/api";
 
 const TYPE_COLOR: Record<string, string> = {
@@ -43,13 +44,22 @@ export function TranscriptsTab() {
     setLoading(true);
     try {
       const data = await getItems({ limit: 200 });
-      setItems(data);
+      const byId = new Map<string, RecallItem>();
+      for (const item of data) {
+        if (!byId.has(item.id)) byId.set(item.id, item);
+      }
+      setItems(Array.from(byId.values()));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const unlisten = listen("recall:new-turn", () => { void load(); });
+    return () => { unlisten.then((f) => f()); };
+  }, [load]);
 
   const copy = (text: string, id: string) => {
     navigator.clipboard.writeText(text).then(() => {

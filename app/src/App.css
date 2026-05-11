@@ -195,7 +195,7 @@ body { background: transparent; overflow: hidden; }
   height: 100vh;
   background: var(--bg);
   border: 1px solid var(--border2);
-  border-radius: 12px;
+  border-radius: 0;
   overflow: hidden;
   color: var(--text);
 }
@@ -205,7 +205,7 @@ body { background: transparent; overflow: hidden; }
   display: flex;
   align-items: center;
   height: 44px;
-  padding: 0 12px;
+  padding: 0 0 0 12px;
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -269,15 +269,19 @@ body { background: transparent; overflow: hidden; }
 
 .titlebar__controls {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: stretch;
+  align-self: stretch;
   margin-left: 8px;
+  gap: 0;
 }
 .wm-btn {
-  width: 28px; height: 24px;
+  flex: 1 1 0;
+  min-width: 44px;
+  width: auto;
+  height: auto;
   background: none;
   border: none;
-  border-radius: 5px;
+  border-radius: 0;
   color: var(--text-muted);
   font-size: 12px;
   cursor: pointer;
@@ -332,9 +336,280 @@ body { background: transparent; overflow: hidden; }
 /* ═══════════════════════════════════════════
    AGENT TAB
 ═══════════════════════════════════════════ */
-.agent-tab {
+.agent-layout {
+  position: relative;
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  --agent-sidebar-width: 280px;
+}
+
+/* Peek: sidebar overlays transcript. Pinned: reserve width so transcript + orb stay in the remaining pane. */
+.agent-layout--sidebar-pinned .agent-tab {
+  margin-left: var(--agent-sidebar-width);
+  min-width: 0;
+  transition: margin-left 0.16s ease;
+}
+
+.agent-sidebar-hitstrip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  z-index: 12;
+}
+
+.agent-sidebar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--agent-sidebar-width, 280px);
+  border-right: 1px solid var(--border);
+  background: rgba(15, 15, 26, 0.96);
   display: flex;
   flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform 0.16s ease;
+  z-index: 15;
+}
+
+.agent-sidebar--open { transform: translateX(0); }
+
+.agent-sidebar__header {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-sidebar__pin,
+.agent-sidebar__new,
+.agent-sidebar__more {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 6px 9px;
+}
+
+.agent-sidebar__new { flex: 1; text-align: left; }
+.agent-sidebar__pin { width: 36px; }
+
+.agent-sidebar__error,
+.agent-sidebar__save-error {
+  margin: 8px 10px 0;
+  padding: 7px 9px;
+  font-size: 11px;
+  border-radius: 8px;
+}
+
+.agent-sidebar__error {
+  border: 1px solid rgba(255,68,102,0.45);
+  color: #ff9fb3;
+}
+
+.agent-sidebar__save-error {
+  border: 1px solid rgba(255,170,0,0.45);
+  color: #ffd38a;
+}
+
+.agent-sidebar__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-chat-row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(255,255,255,0.04);
+  position: relative;
+}
+
+.agent-chat-row--active {
+  border-color: rgba(0,229,255,0.5);
+  background: rgba(0,229,255,0.09);
+}
+
+.agent-chat-row__main {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 0 8px 9px;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: 8px 0 0 8px;
+}
+
+.agent-chat-row__title {
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-chat-row__meta {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.agent-chat-row__menu-anchor {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 4px 6px 4px 0;
+}
+
+.agent-chat-row__kebab {
+  all: unset;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 16px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.agent-chat-row:hover .agent-chat-row__kebab,
+.agent-chat-row--menu-open .agent-chat-row__kebab {
+  opacity: 1;
+}
+
+.agent-chat-row__kebab:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+}
+
+.agent-chat-menu {
+  position: absolute;
+  top: 30px;
+  right: 4px;
+  min-width: 148px;
+  padding: 6px;
+  border-radius: 10px;
+  background: rgba(28, 28, 40, 0.98);
+  border: 1px solid var(--border2);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  z-index: 40;
+}
+
+.agent-chat-menu__item {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.agent-chat-menu__item:hover {
+  background: rgba(255,255,255,0.08);
+}
+
+.agent-chat-menu__item--danger {
+  color: #e87878;
+}
+
+.agent-chat-menu__item--danger:hover {
+  background: rgba(255, 68, 102, 0.12);
+  color: #ff8a8a;
+}
+
+.agent-chat-menu__icon {
+  flex-shrink: 0;
+  opacity: 0.95;
+}
+
+.agent-chat-row__rename {
+  flex: 1;
+  padding: 8px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-chat-row__rename-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
+.agent-chat-row__rename-input:focus {
+  border-color: rgba(0,229,255,0.45);
+}
+
+.agent-chat-row__rename-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.agent-chat-row__rename-save,
+.agent-chat-row__rename-cancel {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+}
+
+.agent-chat-row__rename-save {
+  border-color: rgba(0,229,255,0.35);
+  color: var(--cyan);
+}
+
+.agent-chat-row__rename-cancel:hover,
+.agent-chat-row__rename-save:hover {
+  background: rgba(255,255,255,0.1);
+}
+
+.agent-tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   height: 100%;
 }
 
@@ -357,8 +632,10 @@ body { background: transparent; overflow: hidden; }
 
 .agent-turns {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 12px 18px;
+  /* Space for the floating orb so the last messages scroll above it */
+  padding: 12px 18px 120px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -532,19 +809,26 @@ body { background: transparent; overflow: hidden; }
   border-top: 1px solid var(--border);
 }
 
-/* ── Embedded orb row ── */
-.agent-orb-row {
+/* ── Embedded orb: absolutely positioned so no full-width footer band shows behind it ── */
+.agent-orb-root {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  width: 200px;
+  height: 200px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 18px 0 22px;
-  flex-shrink: 0;
-  border-top: 1px solid var(--border);
+  background: transparent;
+  pointer-events: none;
+  user-select: none;
+  z-index: 3;
 }
 
-.agent-orb-row .orb-core {
-  width: 72px;
-  height: 72px;
+.agent-orb-root .orb-core {
+  width: 88px;
+  height: 88px;
 }
 .agent-input {
   flex: 1;
@@ -818,7 +1102,7 @@ body { background: transparent; overflow: hidden; }
   flex-direction: column;
   background: var(--bg);
   border: 1px solid var(--border2);
-  border-radius: 12px;
+  border-radius: 0;
   overflow: hidden;
   color: var(--text);
 }

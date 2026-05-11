@@ -72,22 +72,28 @@ async def capture_stream(
         spoken = ""
         metadata: dict = {"intent_type": "note", "should_store": False, "due_hint": None, "reminder_text": None}
 
-        async for event in run_agentic_loop(session_id, transcript, rag_context):
-            if event["type"] == "ack":
-                try:
-                    ack_audio = await synthesize(event["text"])
-                    yield _sse({"type": "ack_audio", "audio_base64": ack_audio, "text": event["text"]})
-                except Exception as e:
-                    print(f"[TTS] ack synthesis failed: {e}")
-                    yield _sse({"type": "error", "message": f"TTS (ack) failed: {e}"})
-            elif event["type"] == "spoken":
-                spoken = event["text"]
-                yield _sse({"type": "spoken", "text": spoken})
-            elif event["type"] == "metadata":
-                metadata = {k: v for k, v in event.items() if k != "type"}
-                yield _sse(event)
-            else:
-                yield _sse(event)
+        try:
+            async for event in run_agentic_loop(session_id, transcript, rag_context):
+                if event["type"] == "ack":
+                    try:
+                        ack_audio = await synthesize(event["text"])
+                        yield _sse({"type": "ack_audio", "audio_base64": ack_audio, "text": event["text"]})
+                    except Exception as e:
+                        print(f"[TTS] ack synthesis failed: {e}")
+                        yield _sse({"type": "error", "message": f"TTS (ack) failed: {e}"})
+                elif event["type"] == "spoken":
+                    spoken = event["text"]
+                    yield _sse({"type": "spoken", "text": spoken})
+                elif event["type"] == "metadata":
+                    metadata = {k: v for k, v in event.items() if k != "type"}
+                    yield _sse(event)
+                else:
+                    yield _sse(event)
+        except Exception as exc:
+            print(f"[agent_stream] agentic loop failed: {exc}", flush=True)
+            yield _sse({"type": "error", "message": f"Agent error: {exc}"})
+            yield _sse({"type": "done"})
+            return
 
         # Store item if requested
         due_at = _parse_due_at(metadata.get("due_hint"))

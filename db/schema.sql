@@ -57,6 +57,45 @@ CREATE TABLE IF NOT EXISTS email_style_events (
   created_at  timestamptz DEFAULT now()
 );
 
+-- ── Agent chats (UI thread persistence) ──────────────────────────────────────
+CREATE TABLE IF NOT EXISTS agent_chats (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  agent_session_id text NOT NULL,
+  title            text,
+  turns            jsonb NOT NULL DEFAULT '[]'::jsonb,
+  last_capture     jsonb,
+  archived_at      timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, agent_session_id)
+);
+
+CREATE INDEX IF NOT EXISTS agent_chats_user_updated_idx
+  ON agent_chats (user_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS agent_chats_user_active_idx
+  ON agent_chats (user_id, updated_at DESC)
+  WHERE archived_at IS NULL;
+
+ALTER TABLE agent_chats ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS agent_chats_select_own ON agent_chats;
+CREATE POLICY agent_chats_select_own ON agent_chats
+  FOR SELECT USING ((auth.uid())::text = user_id);
+
+DROP POLICY IF EXISTS agent_chats_insert_own ON agent_chats;
+CREATE POLICY agent_chats_insert_own ON agent_chats
+  FOR INSERT WITH CHECK ((auth.uid())::text = user_id);
+
+DROP POLICY IF EXISTS agent_chats_update_own ON agent_chats;
+CREATE POLICY agent_chats_update_own ON agent_chats
+  FOR UPDATE USING ((auth.uid())::text = user_id);
+
+DROP POLICY IF EXISTS agent_chats_delete_own ON agent_chats;
+CREATE POLICY agent_chats_delete_own ON agent_chats
+  FOR DELETE USING ((auth.uid())::text = user_id);
+
 -- ── RAG search (filters by user_id when provided) ────────────────────────────
 CREATE OR REPLACE FUNCTION match_recall_items(
   query_embedding vector(1536),

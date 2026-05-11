@@ -11,7 +11,7 @@ export type StreamEvent =
   | { type: "metadata"; intent_type: string; should_store: boolean; due_hint: string | null; reminder_text: string | null }
   | { type: "stored"; item_id: string | null; due_at: string | null }
   | { type: "audio"; audio_base64: string }
-  | { type: "error"; message: string }
+  | { type: "error"; message: string; }
   | { type: "done" };
 
 async function* _streamEvents(form: FormData): AsyncGenerator<StreamEvent> {
@@ -91,6 +91,21 @@ export interface PendingReminder {
   content: string;
   intent_type: string;
   due_at: string;
+}
+
+/** Short LLM title from the chat's first user message only (backend `/capture/suggest-title`). */
+export async function suggestAgentChatTitle(firstUserMessage: string): Promise<string | null> {
+  const text = firstUserMessage.trim();
+  if (!text) return null;
+  const res = await fetch(`${await getBase()}/capture/suggest-title`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { title?: string | null };
+  const t = typeof data.title === "string" ? data.title.trim() : "";
+  return t.length > 0 ? t : null;
 }
 
 export async function capture(

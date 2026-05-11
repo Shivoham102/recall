@@ -7,6 +7,7 @@ import { RemindersTab } from "./tabs/RemindersTab";
 import { ProfileTab } from "./tabs/ProfileTab";
 import { loadPendingReminders } from "../services/reminderScheduler";
 import { AuthUser } from "../hooks/useAuth";
+import { AgentChatsProvider } from "../context/AgentChatsContext";
 
 interface Props {
   user: AuthUser;
@@ -67,13 +68,15 @@ export function MainApp({ user, onLogout }: Props) {
         </div>
       </div>
 
-      <div className="main-content">
-        {tab === "agent"       && <AgentTab />}
-        {tab === "tasks"       && <TasksTab />}
-        {tab === "transcripts" && <TranscriptsTab />}
-        {tab === "reminders"   && <RemindersTab />}
-        {tab === "profile"     && <ProfileTab user={user} onLogout={onLogout} />}
-      </div>
+      <AgentChatsProvider userId={user.user_id}>
+        <div className="main-content">
+          {tab === "agent"       && <AgentTab />}
+          {tab === "tasks"       && <TasksTab />}
+          {tab === "transcripts" && <TranscriptsTab />}
+          {tab === "reminders"   && <RemindersTab />}
+          {tab === "profile"     && <ProfileTab user={user} onLogout={onLogout} />}
+        </div>
+      </AgentChatsProvider>
     </div>
   );
 }
