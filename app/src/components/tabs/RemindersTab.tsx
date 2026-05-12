@@ -41,9 +41,9 @@ export function RemindersTab() {
           <div key={item.id} className="reminder-card">
             <div className="reminder-card__due">
               <span className="reminder-card__due-icon">◷</span>
-              {item.due_hint}
+              {formatReminderDue(item)}
             </div>
-            <p className="reminder-card__content">{item.content}</p>
+            <p className="reminder-card__content">{item.display_text || item.content}</p>
             <div className="reminder-card__footer">
               <span className="reminder-card__date">
                 Added {new Date(item.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}
@@ -57,4 +57,31 @@ export function RemindersTab() {
       </div>
     </div>
   );
+}
+
+function formatReminderDue(item: RecallItem): string {
+  if (item.due_at) {
+    const dueDate = new Date(item.due_at);
+    if (!Number.isNaN(dueDate.getTime())) {
+      const now = new Date();
+      const formattedTime = formatTime(dueDate);
+      if (
+        dueDate.getFullYear() === now.getFullYear()
+        && dueDate.getMonth() === now.getMonth()
+        && dueDate.getDate() === now.getDate()
+      ) {
+        return `TODAY AT ${formattedTime}`;
+      }
+      const monthDay = dueDate.toLocaleDateString([], { month: "short", day: "numeric" }).toUpperCase();
+      return `${monthDay} AT ${formattedTime}`;
+    }
+  }
+  return (item.due_hint ?? "").toUpperCase();
+}
+
+function formatTime(date: Date): string {
+  const options = date.getMinutes() === 0
+    ? { hour: "numeric" as const }
+    : { hour: "numeric" as const, minute: "2-digit" as const };
+  return date.toLocaleTimeString([], options).toUpperCase();
 }

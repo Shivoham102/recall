@@ -3,7 +3,7 @@ import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useRecorder } from "../hooks/useRecorder";
-import { capture, playAudio, getOrCreateSessionId } from "../services/api";
+import { captureStream, playAudio, getOrCreateSessionId } from "../services/api";
 import { scheduleReminder } from "../services/reminderScheduler";
 
 const HOTKEY = "Ctrl+Shift+Space";
@@ -19,23 +19,48 @@ export function OrbWindow() {
   const handleStop = useCallback(async () => {
     try {
       const blob = await recorder.stop();
-      const resp = await capture(blob, sessionId);
+      // Dedicated persistent voice session, intentionally isolated from AgentTab chats
+      let transcript = "", responseText = "", intentType = "";
+      let awaitingClarification = false;
+      let itemId: string | null = null, dueAt: string | null = null, audiob64 = "";
 
-      recorder.setSpeaking();
-      playAudio(resp.audio_base64, async () => {
-        recorder.reset();
-        await appWindow.hide();
-      });
+      for await (const event of captureStream(blob, sessionId)) {
+        if (event.type === "transcript")     transcript = event.text;
+        else if (event.type === "ack_audio") playAudio(event.audio_base64);
+        else if (event.type === "spoken")    responseText = event.text;
+        else if (event.type === "metadata") {
+          intentType = event.intent_type;
+          awaitingClarification = event.awaiting_clarification;
+        }
+        else if (event.type === "stored")  { itemId = event.item_id; dueAt = event.due_at; }
+        else if (event.type === "audio")     audiob64 = event.audio_base64;
+        else if (event.type === "error")     throw new Error(event.message);
+        else if (event.type === "done")      break;
+      }
 
-      if (resp.due_at && resp.item_id) {
-        scheduleReminder(resp.item_id, resp.due_at);
+      if (awaitingClarification) {
+        if (audiob64) {
+          playAudio(audiob64, () => { recorder.reset(); recorder.start().catch(() => {}); });
+        } else {
+          recorder.reset();
+          recorder.start().catch(() => {});
+        }
+      } else {
+        if (audiob64) {
+          recorder.setSpeaking();
+          playAudio(audiob64, async () => { recorder.reset(); await appWindow.hide(); });
+        } else {
+          recorder.reset();
+          await appWindow.hide();
+        }
+        if (dueAt && itemId) scheduleReminder(itemId, dueAt);
       }
 
       await emit("recall:new-turn", {
-        transcript: resp.transcript,
-        response_text: resp.response_text,
-        intent_type: resp.intent_type,
-        item_id: resp.item_id,
+        transcript,
+        response_text: responseText,
+        intent_type: intentType,
+        item_id: itemId,
       });
     } catch (e) {
       console.error(e);

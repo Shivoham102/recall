@@ -8,7 +8,7 @@ export type StreamEvent =
   | { type: "tool_result"; name: string; summary: string; data: Record<string, unknown> }
   | { type: "ack_audio"; audio_base64: string; text: string }
   | { type: "spoken"; text: string }
-  | { type: "metadata"; intent_type: string; should_store: boolean; due_hint: string | null; reminder_text: string | null }
+  | { type: "metadata"; intent_type: string; should_store: boolean; due_hint: string | null; reminder_text: string | null; awaiting_clarification: boolean }
   | { type: "stored"; item_id: string | null; due_at: string | null }
   | { type: "audio"; audio_base64: string }
   | { type: "error"; message: string; }
@@ -54,6 +54,7 @@ export async function* captureStream(
   const form = new FormData();
   form.append("audio", audioBlob, "recording.webm");
   form.append("session_id", sessionId);
+  form.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
   yield* _streamEvents(form);
 }
 
@@ -64,6 +65,7 @@ export async function* captureStreamText(
   const form = new FormData();
   form.append("text", text);
   form.append("session_id", sessionId);
+  form.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
   yield* _streamEvents(form);
 }
 
@@ -75,15 +77,8 @@ export interface RecallItem {
   created_at: string;
   updated_at: string;
   due_hint: string | null;
-}
-
-export interface CaptureResponse {
-  transcript: string;
-  response_text: string;
-  audio_base64: string;
-  intent_type: string;
-  item_id: string | null;
-  due_at: string | null;
+  due_at?: string | null;
+  display_text?: string;
 }
 
 export interface PendingReminder {
@@ -106,25 +101,6 @@ export async function suggestAgentChatTitle(firstUserMessage: string): Promise<s
   const data = (await res.json()) as { title?: string | null };
   const t = typeof data.title === "string" ? data.title.trim() : "";
   return t.length > 0 ? t : null;
-}
-
-export async function capture(
-  audioBlob: Blob,
-  sessionId: string,
-): Promise<CaptureResponse> {
-  const form = new FormData();
-  form.append("audio", audioBlob, "recording.webm");
-  form.append("session_id", sessionId);
-  const res = await fetch(`${await getBase()}/capture`, {
-    method: "POST",
-    body: form,
-    headers: await getAuthHeader(),
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => String(res.status));
-    throw new Error(`capture failed: ${detail}`);
-  }
-  return res.json();
 }
 
 export async function queryText(text: string, sessionId: string) {

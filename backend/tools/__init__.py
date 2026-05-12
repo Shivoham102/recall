@@ -28,10 +28,18 @@ TOOL_DEFINITIONS = [
                     "enum": ["task", "blocker", "follow_up", "progress", "note", "query", "update"],
                 },
                 "should_store": {"type": "boolean"},
+                "awaiting_clarification": {
+                    "type": "boolean",
+                    "description": "Set true when asking the user a clarifying question. Hard-blocks storage on this turn regardless of should_store.",
+                },
                 "due_hint": {"type": "string", "description": "Natural language due date, or omit if none"},
                 "reminder_text": {
                     "type": "string",
                     "description": "What to say when the reminder fires, second-person. Omit if no reminder.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Full task/reminder description to store. Only set when completing a multi-turn sequence where the current transcript alone doesn't capture the full intent (e.g. user originally said 'do X on the 14th', now says '10am' — content: 'do X on the 14th'). Reflects any corrections made across turns.",
                 },
             },
             "required": ["intent_type", "should_store"],

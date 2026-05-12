@@ -54,7 +54,7 @@ export function TasksTab() {
             >
               {item.intent_type.replace("_", " ")}
             </span>
-            <p className="task-card__content">{item.content}</p>
+            <p className="task-card__content">{item.display_text || item.content}</p>
             <div className="task-card__footer">
               <span className="task-card__date">{fmt(item.created_at)}</span>
               {item.due_hint && <span className="task-card__due">due: {item.due_hint}</span>}

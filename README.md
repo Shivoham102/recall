@@ -36,7 +36,6 @@ Hit a hotkey, speak a thought, and Recall captures it, classifies it, and respon
 │  FastAPI backend (localhost:8000)                             │
 │                                                              │
 │  POST /capture/stream   audio or text → SSE event stream     │
-│  POST /capture          audio → single JSON response (legacy)│
 │  GET  /items            list stored recall items             │
 │  PATCH /items/:id       update item status / due date        │
 │  GET  /reminders/pending  undelivered future reminders       │
@@ -108,8 +107,6 @@ recall/
 │   ├── routes/
 │   │   ├── voice.py          ← GET /auth/callback (Supabase deep-link redirect)
 │   │   ├── agent_stream.py   ← POST /capture/stream (SSE, main path)
-│   │   ├── capture.py        ← POST /capture (legacy single-response)
-│   │   ├── query.py          ← POST /query (text-only)
 │   │   ├── items.py          ← GET /items, PATCH /items/:id
 │   │   └── reminders.py      ← GET /reminders/*, POST /reminders/dismiss
 │   ├── tools/

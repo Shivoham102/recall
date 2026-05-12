@@ -20,8 +20,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from routes.items import router as items_router
 from routes.reminders import router as reminders_router
 from routes.voice import router as voice_router
-from routes.capture import router as capture_router
-from routes.query import router as query_router
 from routes.agent_stream import router as agent_stream_router
 from routes.chat_title import router as chat_title_router
 from routes.cron import router as cron_router
@@ -35,8 +33,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(capture_router)
-app.include_router(query_router)
 app.include_router(agent_stream_router)
 app.include_router(chat_title_router)
 app.include_router(items_router)

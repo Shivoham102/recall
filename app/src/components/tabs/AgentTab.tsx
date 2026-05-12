@@ -197,6 +197,7 @@ export function AgentTab() {
       let transcript = "";
       let spokenText = "";
       let intentType: string | undefined;
+      let awaitingClarification = false;
       let itemId: string | null = null;
       let dueAt: string | null = null;
       let audiob64 = "";
@@ -243,6 +244,7 @@ export function AgentTab() {
           patchTurnInChat(chatId, assistantTurnId, { text: spokenText });
         } else if (event.type === "metadata") {
           intentType = event.intent_type;
+          awaitingClarification = event.awaiting_clarification ?? false;
           patchTurnInChat(chatId, userTurnId, { intentType });
         } else if (event.type === "stored") {
           itemId = event.item_id;
@@ -254,21 +256,34 @@ export function AgentTab() {
         } else if (event.type === "done") {
           doneHandled = true;
           patchTurnInChat(chatId, assistantTurnId, { pending: false });
-          if (audiob64) {
-            playAudio(audiob64, () => recorder.reset());
+          if (awaitingClarification) {
+            // Agent asked a clarifying question — auto-arm mic for follow-up
+            if (audiob64) {
+              playAudio(audiob64, () => {
+                recorder.reset();
+                recorder.start().catch(() => {});
+              });
+            } else {
+              recorder.reset();
+              recorder.start().catch(() => {});
+            }
           } else {
-            recorder.reset();
+            if (audiob64) {
+              playAudio(audiob64, () => recorder.reset());
+            } else {
+              recorder.reset();
+            }
+            if (dueAt && itemId) scheduleReminder(itemId, dueAt);
+            await emit("recall:new-turn", {
+              transcript,
+              response_text: spokenText,
+              intent_type: intentType,
+              item_id: itemId,
+            });
+            window.setTimeout(() => {
+              void refreshChatTitleFromServer(chatId);
+            }, 0);
           }
-          if (dueAt && itemId) scheduleReminder(itemId, dueAt);
-          await emit("recall:new-turn", {
-            transcript,
-            response_text: spokenText,
-            intent_type: intentType,
-            item_id: itemId,
-          });
-          window.setTimeout(() => {
-            void refreshChatTitleFromServer(chatId);
-          }, 0);
         }
       }
     } catch (err) {

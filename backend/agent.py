@@ -4,20 +4,16 @@ import asyncio
 import re
 from datetime import datetime
 from typing import AsyncGenerator
-from anthropic import Anthropic, AsyncAnthropic
+from anthropic import AsyncAnthropic
 from anthropic.types import TextBlock, ToolUseBlock
 from dotenv import load_dotenv
 import context
 
 load_dotenv()
 
-client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 async_client = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-# Simple session store for the legacy /capture endpoint
-sessions: dict[str, list[dict]] = {}
-
-# Extended session store for the agentic /capture/stream endpoint
+# Session store for the agentic /capture/stream endpoint
 # Stores full content block lists so tool_use turns are preserved in history
 agentic_sessions: dict[str, list[dict]] = {}
 
@@ -29,12 +25,14 @@ MAX_AGENT_ITERATIONS = 8
 SYSTEM_PROMPT_IDENTITY = """You are Recall, a voice assistant for working memory running on Windows 11.
 You speak aloud — be extremely brief. Never explain, never repeat back what was said.
 For simple captures (task/note/reminder): respond in 2-5 words. Examples: "Got it." "Sure." "Noted."
-If the user asks to be reminded but gives no specific time, ask: "When?" — one word, nothing else.
+If the user asks to be reminded without specifying a clock time (hour/minute), ALWAYS ask: "What time?" — two words, nothing else. A date alone (e.g. "15th May", "tomorrow") is NOT sufficient — you must also have a clock time before storing.
 For queries: one sentence maximum, specific facts only.
 Never fabricate results — call the appropriate tool, then respond based on what it returns."""
 
 SYSTEM_PROMPT_TOOL_RULES = """Tool usage rules:
 - Call classify_intent on every turn where you give a spoken response without doing other agentic work.
+- When asking a clarifying question (e.g. "When?"), call classify_intent with awaiting_clarification: true, should_store: false, and no due_hint. This is a hard storage gate — the backend will not store anything on that turn regardless of should_store.
+- When completing a multi-turn sequence (all info now present after a follow-up), set awaiting_clarification: false, should_store: true. Include a "content" field with the full reconstructed intent (e.g. "do late code on 14th of May") — not just the follow-up detail ("10 a.m."). If the user corrected intent across turns, content reflects the final corrected version.
 - For recall_update_item and calendar_create: speak the proposed action first without calling the tool. Wait for the user to confirm next turn, then execute.
 - You cannot send emails — only save drafts. If the user asks to send, draft it and tell them it's saved as a draft.
 - For email drafting, follow explicit user drafting preferences from the latest turn/session (short, concise, detailed, formal, casual) as highest-priority output constraints.
@@ -48,34 +46,6 @@ SYSTEM_PROMPT_BLOCKS = [
     {"type": "text", "text": SYSTEM_PROMPT_IDENTITY, "cache_control": {"type": "ephemeral"}},
     {"type": "text", "text": SYSTEM_PROMPT_TOOL_RULES, "cache_control": {"type": "ephemeral"}},
 ]
-
-# Legacy single-block prompt kept for call_agent() backward compat
-_LEGACY_SYSTEM_PROMPT = """You are Recall, a voice assistant for working memory. You speak aloud — be extremely brief.
-
-For simple captures (task/note/reminder): respond in 2-5 words. Examples: "Got it." "Sure." "Noted." "Reminder set."
-If the user asks to be reminded but gives no specific time (e.g. "remind me later"), ask: "When?" — one word, nothing else.
-For queries: one sentence maximum, specific facts only.
-Never explain, never repeat back what was said.
-
-ALWAYS respond in this exact format (two lines, no extra text):
-{"intent_type": "<task|blocker|follow_up|progress|note|query|update>", "should_store": <true|false>, "due_hint": "<natural language time or null>", "reminder_text": "<natural spoken reminder in second person, max 10 words, or null>"}
-<spoken response here>
-
-reminder_text rules:
-- Only set when due_hint is not null
-- Rephrase as what the agent will say when the reminder fires, second person, no filler
-- Examples: "remind me to call mom at 8" → "Time to call your mom."
-           "don't forget to submit the report tomorrow" → "Submit that report — it's due today."
-
-intent_type rules:
-- task: something to do
-- blocker: impediment to progress
-- follow_up: need to check on something
-- progress: update on existing item
-- note: general context, not actionable
-- query: user asking a question — do NOT store
-- update: user changing status — do NOT store"""
-
 
 _DRAFT_PREFS_BY_SESSION: dict[str, dict] = {}
 _SHORT_RE = re.compile(r"\b(short|concise|brief|quick|one[- ]?liner)\b", re.IGNORECASE)
@@ -116,45 +86,6 @@ def _augment_user_turn(user_text: str, rag_context: str, draft_preferences: dict
     )
 
 
-# ── Legacy synchronous agent (used by /capture and /query endpoints) ──────────
-
-def call_agent(
-    session_id: str,
-    user_text: str,
-    rag_context: str,
-) -> tuple[dict, str]:
-    """Returns (metadata_dict, spoken_text). Preserved for backward compat."""
-    history = sessions.setdefault(session_id, [])
-
-    augmented_user = _augment_user_turn(user_text, rag_context)
-    history.append({"role": "user", "content": augmented_user})
-
-    if len(history) > MAX_TURNS * 2:
-        history = history[-(MAX_TURNS * 2):]
-
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=512,
-        system=[{"type": "text", "text": _LEGACY_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-        messages=history,
-    )
-
-    raw = response.content[0].text.strip()
-    lines = raw.split("\n", 1)
-
-    try:
-        metadata = json.loads(lines[0])
-    except (json.JSONDecodeError, IndexError):
-        metadata = {"intent_type": "note", "should_store": False, "due_hint": None}
-
-    spoken = lines[1].strip() if len(lines) > 1 else raw
-
-    history.append({"role": "assistant", "content": spoken})
-    sessions[session_id] = history
-
-    return metadata, spoken
-
-
 # ── Agentic loop (used by /capture/stream endpoint) ───────────────────────────
 
 async def run_agentic_loop(
@@ -189,9 +120,10 @@ async def run_agentic_loop(
     if len(history) > MAX_TURNS * 2:
         history = history[-(MAX_TURNS * 2):]
 
-    metadata = {"intent_type": "note", "should_store": False, "due_hint": None, "reminder_text": None}
+    metadata = {"intent_type": "note", "should_store": False, "due_hint": None, "reminder_text": None, "content": None, "awaiting_clarification": False}
     spoken = ""
     ack_emitted = False
+    ack_text = ""
 
     for iteration in range(MAX_AGENT_ITERATIONS):
         yield {"type": "thinking", "text": "Thinking..."}
@@ -217,6 +149,8 @@ async def run_agentic_loop(
                         "should_store": block.input.get("should_store", False),
                         "due_hint": block.input.get("due_hint"),
                         "reminder_text": block.input.get("reminder_text"),
+                        "content": block.input.get("content"),
+                        "awaiting_clarification": block.input.get("awaiting_clarification", False),
                     }
                 else:
                     tool_use_blocks.append(block)
@@ -232,9 +166,10 @@ async def run_agentic_loop(
             # Emit acknowledgment only once per user request (first tool-use turn).
             # Fall back to "On it." if the model didn't include a text block.
             if not ack_emitted:
-                yield {"type": "ack", "text": spoken or "On it."}
+                ack_text = spoken or "On it."
+                yield {"type": "ack", "text": ack_text}
                 ack_emitted = True
-            spoken = ""  # don't re-use as final response
+            spoken = ""  # don't re-use as final response; ack_text is fallback
 
             # Append full assistant turn (preserves tool_use blocks for API)
             history.append({"role": "assistant", "content": response.content})
@@ -276,7 +211,8 @@ async def run_agentic_loop(
 
         else:
             # stop_reason is something unexpected — bail out
-            history.append({"role": "assistant", "content": spoken or "(done)"})
+            history_spoken = spoken or ack_text or ("Got it." if metadata.get("should_store") else "(done)")
+            history.append({"role": "assistant", "content": history_spoken})
             agentic_sessions[session_id] = history
             save_session(session_id, history)
             break
@@ -286,5 +222,6 @@ async def run_agentic_loop(
         yield {"type": "spoken", "text": spoken}
         return
 
-    yield {"type": "spoken", "text": spoken}
+    final_spoken = spoken or ack_text or ("Got it." if metadata.get("should_store") else "")
+    yield {"type": "spoken", "text": final_spoken}
     yield {"type": "metadata", **metadata}

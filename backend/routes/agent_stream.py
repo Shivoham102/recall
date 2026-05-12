@@ -1,5 +1,4 @@
 import json
-import dateparser
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse
 from stt import transcribe
@@ -7,6 +6,7 @@ from rag import retrieve_similar, store_item
 from agent import run_agentic_loop
 from tts import synthesize
 from auth import get_current_user
+from time_utils import parse_due_at
 import context
 
 router = APIRouter()
@@ -22,20 +22,6 @@ def _fmt_context(items: list[dict]) -> str:
     )
 
 
-def _parse_due_at(due_hint: str | None) -> str | None:
-    if not due_hint:
-        return None
-    from datetime import timezone as _tz
-    parsed = dateparser.parse(
-        due_hint,
-        settings={"PREFER_DATES_FROM": "future", "RETURN_AS_TIMEZONE_AWARE": False},
-    )
-    if not parsed:
-        return None
-    # parsed is naive (local time) — convert to UTC so Supabase stores the right moment
-    return parsed.astimezone(_tz.utc).isoformat()
-
-
 def _sse(event: dict) -> str:
     return f"data: {json.dumps(event)}\n\n"
 
@@ -45,6 +31,7 @@ async def capture_stream(
     session_id: str = Form(...),
     audio: UploadFile = File(None),
     text: str = Form(None),
+    timezone: str = Form("UTC"),
     user: dict = Depends(get_current_user),
 ):
     if text and text.strip():
@@ -70,7 +57,7 @@ async def capture_stream(
         yield _sse({"type": "transcript", "text": transcript})
 
         spoken = ""
-        metadata: dict = {"intent_type": "note", "should_store": False, "due_hint": None, "reminder_text": None}
+        metadata: dict = {"intent_type": "note", "should_store": False, "due_hint": None, "reminder_text": None, "content": None, "awaiting_clarification": False}
 
         try:
             async for event in run_agentic_loop(session_id, transcript, rag_context):
@@ -95,12 +82,12 @@ async def capture_stream(
             yield _sse({"type": "done"})
             return
 
-        # Store item if requested
-        due_at = _parse_due_at(metadata.get("due_hint"))
+        # Store item if requested (hard gate: never store on clarifying question turns)
+        due_at = parse_due_at(metadata.get("due_hint"), timezone)
         item_id = None
-        if metadata.get("should_store") and spoken:
+        if metadata.get("should_store") and not metadata.get("awaiting_clarification") and spoken:
             item_id = store_item(
-                content=transcript,
+                content=metadata.get("content") or transcript,
                 intent_type=metadata.get("intent_type", "note"),
                 due_hint=metadata.get("due_hint"),
                 due_at=due_at,
