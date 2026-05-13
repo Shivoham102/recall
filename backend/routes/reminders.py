@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from db import get_db
@@ -40,7 +40,7 @@ def get_pending_reminders(user: dict = Depends(get_current_user)):
         .eq("user_id", user["sub"])
         .not_.is_("due_at", "null")
         .is_("reminded_at", "null")
-        .neq("status", "done")
+        .eq("status", "open")
         .execute()
     )
     return result.data or []
@@ -57,7 +57,7 @@ async def get_due_reminders(user: dict = Depends(get_current_user)):
         .eq("user_id", user["sub"])
         .lte("due_at", now)
         .is_("reminded_at", "null")
-        .neq("status", "done")
+        .eq("status", "open")
         .execute()
     )
     items = result.data or []
@@ -80,3 +80,33 @@ async def get_due_reminders(user: dict = Depends(get_current_user)):
             "audio_base64": audio,
         })
     return output
+
+
+@router.post("/reminders/mark-missed")
+def mark_missed(user: dict = Depends(get_current_user)):
+    """Find all open items past due by >2h and mark them status=missed + reminded_at=now.
+    Returns the marked items so the client can surface the banner."""
+    now_dt = datetime.now(timezone.utc)
+    cutoff = (now_dt - timedelta(hours=2)).isoformat()
+    now = now_dt.isoformat()
+    result = (
+        get_db()
+        .table("recall_items")
+        .select("id, content")
+        .eq("user_id", user["sub"])
+        .eq("status", "open")
+        .is_("reminded_at", "null")
+        .lte("due_at", cutoff)
+        .execute()
+    )
+    items = result.data or []
+    for item in items:
+        (
+            get_db()
+            .table("recall_items")
+            .update({"status": "missed", "reminded_at": now})
+            .eq("id", item["id"])
+            .eq("user_id", user["sub"])
+            .execute()
+        )
+    return {"items": items}

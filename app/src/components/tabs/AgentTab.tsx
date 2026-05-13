@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen, emit } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { captureStream, playAudio } from "../../services/api";
 import { useRecorder } from "../../hooks/useRecorder";
 import { useAgentChats } from "../../context/AgentChatsContext";
-import { AgentStep, EmailCard, TaskCard } from "../../types/agentTurn";
+import { AgentStep, CalendarCard, EmailCard, TaskCard } from "../../types/agentTurn";
 import { scheduleReminder } from "../../services/reminderScheduler";
 import { AgentChatSidebar } from "./AgentChatSidebar";
 
@@ -28,6 +29,7 @@ const INTENT_COLORS: Record<string, string> = {
 const STEP_LABELS: Record<string, string> = {
   gmail_get_updates: "checking inbox",
   surface_cards: "selecting highlights",
+  surface_calendar: "showing events",
   gmail_find_contact: "looking up contact",
   gmail_fetch_style_samples: "reading writing style",
   gmail_draft: "saving draft",
@@ -72,7 +74,12 @@ function EmailCardGrid({ cards }: { cards: EmailCard[] }) {
   return (
     <div className="email-cards">
       {cards.map((card, i) => (
-        <div key={`${card.subject}-${i}`} className={`email-card${card.unread ? " email-card--unread" : ""}`}>
+        <div
+          key={`${card.subject}-${i}`}
+          className={`email-card${card.unread ? " email-card--unread" : ""}`}
+          onClick={() => card.link && openUrl(card.link).catch(() => {})}
+          style={{ cursor: card.link ? "pointer" : "default" }}
+        >
           <div className="email-card__header">
             <span className="email-card__sender">{card.sender}</span>
             <span className="email-card__time">{card.received}</span>
@@ -80,6 +87,41 @@ function EmailCardGrid({ cards }: { cards: EmailCard[] }) {
           <div className="email-card__subject">{card.subject}</div>
           {card.snippet && <div className="email-card__snippet">{card.snippet}</div>}
           {card.unread && <div className="email-card__badge">unread</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CalendarCardGrid({ cards }: { cards: CalendarCard[] }) {
+  function fmt(iso: string, isAllDay: boolean) {
+    if (!iso) return "";
+    if (isAllDay) {
+      const d = new Date(iso + "T00:00:00");
+      return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }).toUpperCase();
+    }
+    const d = new Date(iso);
+    const now = new Date();
+    const timeStr = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).toUpperCase();
+    if (d.toDateString() === now.toDateString()) return `TODAY ${timeStr}`;
+    return `${d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }).toUpperCase()} ${timeStr}`;
+  }
+
+  return (
+    <div className="calendar-cards">
+      {cards.map((card, i) => (
+        <div
+          key={`${card.title}-${i}`}
+          className="calendar-card"
+          onClick={() => card.link && openUrl(card.link).catch(() => {})}
+          style={{ cursor: card.link ? "pointer" : "default" }}
+        >
+          <div className="calendar-card__time">
+            <span className="calendar-card__time-icon">◷</span>
+            {fmt(card.start, card.is_all_day)}
+          </div>
+          <div className="calendar-card__title">{card.title}</div>
+          {card.location && <div className="calendar-card__location">📍 {card.location}</div>}
         </div>
       ))}
     </div>
@@ -230,6 +272,9 @@ export function AgentTab() {
               const next = { ...turn, steps };
               if (event.name === "surface_cards" && Array.isArray(event.data?.items_data)) {
                 next.emailCards = event.data.items_data as EmailCard[];
+              }
+              if (event.name === "surface_calendar" && Array.isArray(event.data?.items_data)) {
+                next.calendarCards = event.data.items_data as CalendarCard[];
               }
               if (event.name === "surface_tasks" && Array.isArray(event.data?.items_data)) {
                 next.taskCards = event.data.items_data as TaskCard[];
@@ -414,6 +459,7 @@ export function AgentTab() {
               {t.steps && t.steps.length > 0 && <StepsGroup steps={t.steps} />}
               {t.text && <p>{t.text}</p>}
               {t.emailCards && t.emailCards.length > 0 && <EmailCardGrid cards={t.emailCards} />}
+              {t.calendarCards && t.calendarCards.length > 0 && <CalendarCardGrid cards={t.calendarCards} />}
               {t.taskCards && t.taskCards.length > 0 && <TaskCardGrid cards={t.taskCards} />}
             </div>
           ))}

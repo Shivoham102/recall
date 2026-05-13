@@ -1,7 +1,6 @@
 import { emit } from "@tauri-apps/api/event";
-import { checkDueReminders, getPendingReminders, dismissReminders } from "./api";
+import { checkDueReminders, getPendingReminders, markRemindersAsMissed } from "./api";
 
-const MISSED_THRESHOLD_MS = 60 * 60 * 1000; // reminders older than 1h on startup = missed
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 5_000;
 
@@ -10,6 +9,10 @@ const activeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // Guards against two concurrent fireDue() calls (e.g. timer + focus event racing)
 let firing = false;
+
+// Guards against concurrent loadPendingReminders() calls; queues one follow-up if needed
+let loadingPending = false;
+let needsReload = false;
 
 const sleep = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
 
@@ -71,25 +74,24 @@ export function cancelReminder(id: string): void {
 }
 
 export async function loadPendingReminders(): Promise<void> {
+  if (loadingPending) { needsReload = true; return; }
+  loadingPending = true;
   try {
-    const items = await getPendingReminders();
-    const now = Date.now();
-    const missed: { id: string; content: string }[] = [];
-
-    for (const item of items) {
-      const age = now - new Date(item.due_at).getTime();
-      if (age > MISSED_THRESHOLD_MS) {
-        missed.push({ id: item.id, content: item.content });
-      } else {
-        scheduleReminder(item.id, item.due_at);
-      }
-    }
-
+    // Persist first: backend finds open items >2h past due, marks them missed
+    const missed = await markRemindersAsMissed();
     if (missed.length > 0) {
       await emit("recall:reminders-missed", { items: missed }).catch(() => {});
-      await dismissReminders(missed.map((m) => m.id)).catch(() => {});
+    }
+    // Schedule timers for remaining open/future items
+    const items = await getPendingReminders();
+    for (const item of items) {
+      scheduleReminder(item.id, item.due_at);
     }
   } catch (e) {
     console.error("Failed to load pending reminders:", e);
+    // No emit on failure — items stay open and retry on next focus/reopen
+  } finally {
+    loadingPending = false;
+    if (needsReload) { needsReload = false; void loadPendingReminders(); }
   }
 }

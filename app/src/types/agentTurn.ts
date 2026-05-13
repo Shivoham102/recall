@@ -13,6 +13,16 @@ export interface EmailCard {
   received: string;
   unread: boolean;
   important: boolean;
+  link: string;
+}
+
+export interface CalendarCard {
+  title: string;
+  start: string;
+  end: string;
+  link: string;
+  location: string;
+  is_all_day: boolean;
 }
 
 export interface TaskCard {
@@ -31,6 +41,7 @@ export interface AgentTurn {
   intentType?: string;
   steps?: AgentStep[];
   emailCards?: EmailCard[];
+  calendarCards?: CalendarCard[];
   taskCards?: TaskCard[];
   pending?: boolean;
 }

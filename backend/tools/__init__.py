@@ -7,7 +7,7 @@ try:
         gmail_get_updates, surface_cards,
         gmail_find_contact, gmail_find_followup_thread, gmail_get_thread_context,
         gmail_fetch_style_samples, gmail_draft, gmail_reply_draft,
-        calendar_list, calendar_create,
+        calendar_list, calendar_create, surface_calendar,
     )
     _google_tools_available = True
 except ImportError:
@@ -280,13 +280,34 @@ if _google_tools_available:
             "description": (
                 "List upcoming Google Calendar events. "
                 "Use when the user asks what's on their calendar, their schedule, upcoming meetings, "
-                "or as part of a morning briefing alongside gmail_get_updates and recall_search."
+                "or as part of a morning briefing alongside gmail_get_updates and recall_search. "
+                "After listing, call surface_calendar with the indices of events worth highlighting."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "days_ahead": {"type": "integer", "default": 7},
                 },
+            },
+        },
+        {
+            "name": "surface_calendar",
+            "description": (
+                "Render calendar events as visual cards in the UI. "
+                "Call after calendar_list with the indices of ALL events you mention verbally. "
+                "Every event you name in your spoken response MUST appear here — no exceptions. "
+                "Use for morning briefings or any time you discuss specific upcoming events."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "indices": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Indices into the events returned by the most recent calendar_list call",
+                    },
+                },
+                "required": ["indices"],
             },
         },
         {
@@ -318,4 +339,5 @@ if _google_tools_available:
         "gmail_reply_draft": gmail_reply_draft,
         "calendar_list": calendar_list,
         "calendar_create": calendar_create,
+        "surface_calendar": surface_calendar,
     })

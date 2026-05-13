@@ -3,6 +3,13 @@
 ═══════════════════════════════════════════ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ── Global scrollbar ── */
+* { scrollbar-width: thin; scrollbar-color: rgba(0,229,255,0.2) transparent; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,229,255,0.2); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,229,255,0.45); }
+
 :root {
   --bg:         #08080f;
   --bg2:        #0f0f1a;
@@ -639,8 +646,6 @@ body { background: transparent; overflow: hidden; }
   display: flex;
   flex-direction: column;
   gap: 10px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.1) transparent;
 }
 
 .agent-empty {
@@ -719,15 +724,16 @@ body { background: transparent; overflow: hidden; }
 .email-card {
   background: rgba(255,255,255,0.07);
   border: 1px solid rgba(255,255,255,0.15);
+  cursor: pointer;
   border-radius: 8px;
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   cursor: default;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, background 0.15s;
 }
-.email-card:hover { border-color: rgba(255,255,255,0.28); }
+.email-card:hover { border-color: rgba(255,170,0,0.4); background: rgba(255,170,0,0.05); }
 .email-card--unread { border-color: rgba(0,229,255,0.35); }
 .email-card__header {
   display: flex;
@@ -775,6 +781,41 @@ body { background: transparent; overflow: hidden; }
   color: #00e5ff;
   opacity: 0.9;
 }
+
+/* ── Calendar cards in agent tab ── */
+.calendar-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.calendar-card {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(167,139,250,0.25);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.calendar-card:hover {
+  border-color: rgba(167,139,250,0.55);
+  background: rgba(167,139,250,0.07);
+}
+.calendar-card__time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #a78bfa;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.calendar-card__time-icon { font-size: 13px; }
+.calendar-card__title { font-size: 13px; font-weight: 500; color: var(--text); line-height: 1.4; }
+.calendar-card__location { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
 /* ── Task cards in agent tab ── */
 .agent-task-cards {
@@ -871,8 +912,6 @@ body { background: transparent; overflow: hidden; }
   display: flex;
   flex-direction: column;
   gap: 8px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.1) transparent;
 }
 
 .task-card {
@@ -961,8 +1000,6 @@ body { background: transparent; overflow: hidden; }
 .transcripts-list {
   flex: 1;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.1) transparent;
 }
 
 .transcript-group { padding: 0 0 4px; }
@@ -1045,8 +1082,6 @@ body { background: transparent; overflow: hidden; }
   display: flex;
   flex-direction: column;
   gap: 8px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.1) transparent;
 }
 
 .reminder-card {
@@ -1090,6 +1125,11 @@ body { background: transparent; overflow: hidden; }
   transition: color 0.15s, border-color 0.15s;
 }
 .reminder-card__dismiss:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+
+.tab-header--missed { margin-top: 16px; }
+.reminder-list--missed { opacity: 0.75; }
+.reminder-card--missed { border-color: rgba(255, 68, 102, 0.2); }
+.reminder-card--missed .reminder-card__due { color: #ff4466; }
 
 
 /* ═══════════════════════════════════════════
@@ -1225,8 +1265,6 @@ body { background: transparent; overflow: hidden; }
   padding: 28px 24px;
   height: 100%;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.1) transparent;
 }
 
 .profile-hero {

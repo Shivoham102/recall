@@ -40,7 +40,9 @@ SYSTEM_PROMPT_TOOL_RULES = """Tool usage rules:
 - For follow-up/reply requests: call gmail_find_followup_thread first (sent first, inbox fallback). If low confidence/no match, ask one clarifying question and do not draft yet.
 - After a thread is selected, call gmail_get_thread_context before drafting and keep continuity with thread asks/commitments.
 - For follow-up replies, prefer gmail_reply_draft over gmail_draft so the draft stays in the existing thread.
-- IMPORTANT: Before the FIRST tool call in a user request, include a brief spoken acknowledgment (2-5 words) as a text block in the SAME response as the tool call. Examples: "Sure, on it." "Let me check." "On it." Do not repeat acknowledgments for subsequent tool calls in that same request."""
+- IMPORTANT: Before the FIRST tool call in a user request, include a brief spoken acknowledgment (2-5 words) as a text block in the SAME response as the tool call. Examples: "Sure, on it." "Let me check." "On it." Do not repeat acknowledgments for subsequent tool calls in that same request.
+- For briefings combining email + calendar: cross-reference for duplicates. If an email is about a meeting, call, or event that already appears on the calendar, skip that email highlight entirely — mention the event once, in the calendar section only. Scheduling confirmation emails (e.g. "your meeting with X is scheduled") are redundant if the event is on the calendar.
+- surface_calendar: include ALL event indices you mention verbally. Never reference a calendar event in your spoken response without surfacing it as a card. If you mention N events, surface_calendar indices must include all N of them."""
 
 SYSTEM_PROMPT_BLOCKS = [
     {"type": "text", "text": SYSTEM_PROMPT_IDENTITY, "cache_control": {"type": "ephemeral"}},
@@ -209,8 +211,32 @@ async def run_agentic_loop(
 
             history.append({"role": "user", "content": tool_results})
 
+        elif response.stop_reason == "tool_use":
+            # Only classify_intent was called (no real tool_use_blocks).
+            # If the agent didn't produce a spoken response, give it another turn so it can.
+            if not spoken:
+                classify_results = [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": b.id,
+                        "content": json.dumps({"status": "classified"}),
+                    }
+                    for b in response.content
+                    if isinstance(b, ToolUseBlock) and b.name == "classify_intent"
+                ]
+                if classify_results:
+                    history.append({"role": "assistant", "content": response.content})
+                    history.append({"role": "user", "content": classify_results})
+                    continue  # agent will produce spoken summary next iteration
+            # Has spoken text, or nothing to send back — bail out normally
+            history_spoken = spoken or ack_text or ("Got it." if metadata.get("should_store") else "(done)")
+            history.append({"role": "assistant", "content": history_spoken})
+            agentic_sessions[session_id] = history
+            save_session(session_id, history)
+            break
+
         else:
-            # stop_reason is something unexpected — bail out
+            # Unexpected stop_reason — bail out
             history_spoken = spoken or ack_text or ("Got it." if metadata.get("should_store") else "(done)")
             history.append({"role": "assistant", "content": history_spoken})
             agentic_sessions[session_id] = history

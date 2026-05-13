@@ -185,11 +185,22 @@ export async function checkDueReminders(): Promise<DueReminder[]> {
 
 export async function dismissReminders(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
-  await fetch(`${await getBase()}/reminders/dismiss`, {
+  const res = await fetch(`${await getBase()}/reminders/dismiss`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
     body: JSON.stringify({ ids }),
   });
+  if (!res.ok) throw new Error(`reminders/dismiss failed: ${res.status}`);
+}
+
+export async function markRemindersAsMissed(): Promise<{ id: string; content: string }[]> {
+  const res = await fetch(`${await getBase()}/reminders/mark-missed`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+  });
+  if (!res.ok) throw new Error(`reminders/mark-missed failed: ${res.status}`);
+  const data: { items: { id: string; content: string }[] } = await res.json();
+  return data.items;
 }
 
 export function getOrCreateSessionId(): string {

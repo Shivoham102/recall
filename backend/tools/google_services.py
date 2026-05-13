@@ -325,9 +325,10 @@ def _relative_time(dt: datetime) -> str:
     return f"{hours // 24}d ago"
 
 
-# Single-user app — store last email fetch so surface_cards can look up by index
+# Single-user app — store last fetches so surface_* tools can look up by index
 _last_email_fetch: list = []
 _last_thread_candidate_fetch: list = []
+_last_calendar_fetch: list = []
 _style_profile_cache: dict[str, dict] = {}
 
 
@@ -430,6 +431,7 @@ async def gmail_get_updates(inp: dict) -> dict:
             is_unread = "UNREAD" in labels
             is_important = "IMPORTANT" in labels
 
+            thread_id = detail.get("threadId", msg["id"])
             emails.append({
                 "sender": sender,
                 "subject": subject,
@@ -437,6 +439,8 @@ async def gmail_get_updates(inp: dict) -> dict:
                 "received": time_str,
                 "unread": is_unread,
                 "important": is_important,
+                "thread_id": thread_id,
+                "link": f"https://mail.google.com/mail/u/0/#all/{thread_id}",
             })
 
         # Sort: unread + important first, then unread, then rest
@@ -484,6 +488,18 @@ async def surface_cards(inp: dict) -> dict:
         "summary": f"Showing {len(selected)} card(s)",
         "card_type": "emails",
         "source": source,
+        "items_data": selected,
+    }
+
+
+async def surface_calendar(inp: dict) -> dict:
+    """Tells the frontend which calendar events to render as cards.
+    Call after calendar_list with the indices of events worth highlighting."""
+    indices = inp.get("indices", [])
+    selected = [_last_calendar_fetch[i] for i in indices if i < len(_last_calendar_fetch)]
+    return {
+        "summary": f"Showing {len(selected)} event(s)",
+        "card_type": "calendar",
         "items_data": selected,
     }
 
@@ -1027,10 +1043,22 @@ async def calendar_list(inp: dict) -> dict:
         return result.get("items", [])
 
     events = await asyncio.to_thread(_list)
+    global _last_calendar_fetch
+    _last_calendar_fetch = []
     formatted = []
     for ev in events:
-        start = ev["start"].get("dateTime", ev["start"].get("date", ""))
-        formatted.append(f"{start[:16]} — {ev.get('summary', '(no title)')}")
+        start_raw = ev["start"].get("dateTime", ev["start"].get("date", ""))
+        end_raw   = ev["end"].get("dateTime",   ev["end"].get("date",   ""))
+        is_all_day = "dateTime" not in ev["start"]
+        _last_calendar_fetch.append({
+            "title":      ev.get("summary", "(no title)"),
+            "start":      start_raw,
+            "end":        end_raw,
+            "link":       ev.get("htmlLink", ""),
+            "location":   ev.get("location", ""),
+            "is_all_day": is_all_day,
+        })
+        formatted.append(f"[{len(_last_calendar_fetch) - 1}] {start_raw[:16]} — {ev.get('summary', '(no title)')}")
 
     return {
         "summary": f"{len(events)} event(s) in the next {days_ahead} days",
