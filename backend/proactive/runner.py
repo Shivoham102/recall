@@ -17,11 +17,15 @@ class ProactiveResult:
     deliver: bool = True  # False = mark done+delivered immediately, skip SSE
 
 
+# Jobs that dedupe by calendar day (UTC) rather than a rolling window.
+# Ensures the 7am cron always runs even if user manually triggered earlier that day.
+_CALENDAR_DAY_JOBS = {"morning_brief", "pattern_learn"}
+
 # How far back to look for an existing successful run before allowing a new one.
 # None = no time window (smart_reminder uses context_key matching instead).
 _DEDUPE_WINDOWS: dict[str, timedelta | None] = {
-    "morning_brief": timedelta(days=1),
-    "pattern_learn": timedelta(days=1),
+    "morning_brief": timedelta(days=1),   # overridden by _CALENDAR_DAY_JOBS
+    "pattern_learn": timedelta(days=1),   # overridden by _CALENDAR_DAY_JOBS
     "email_triage": timedelta(minutes=90),
     "follow_up_scan": timedelta(minutes=50),
     "smart_reminder": None,
@@ -82,7 +86,10 @@ async def run_job(
         else:
             window = _DEDUPE_WINDOWS.get(job_type)
             if window is not None:
-                window_start = (now - window).isoformat()
+                if job_type in _CALENDAR_DAY_JOBS:
+                    window_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+                else:
+                    window_start = (now - window).isoformat()
                 res = (
                     db.table("proactive_jobs")
                     .select("*")
