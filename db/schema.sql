@@ -122,6 +122,85 @@ LANGUAGE sql STABLE AS $$
   LIMIT match_count;
 $$;
 
+-- ── Proactive agent jobs ──────────────────────────────────────────────────────
+-- Tracks every proactive job run per user. Dedupe and retry logic lives in runner.py.
+-- job_type: 'morning_brief' | 'email_triage' | 'follow_up_scan' | 'pattern_learn' | 'smart_reminder'
+-- context_key: NULL for most jobs; stores item_id for smart_reminder per-item dedupe.
+-- retry_count: counts failures only, not pre-execution attempts.
+CREATE TABLE IF NOT EXISTS proactive_jobs (
+  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      text        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  job_type     text        NOT NULL,
+  context_key  text,
+  status       text        NOT NULL DEFAULT 'running',
+  result       jsonb,
+  delivered    boolean     NOT NULL DEFAULT false,
+  retry_count  int         NOT NULL DEFAULT 0,
+  started_at   timestamptz NOT NULL DEFAULT now(),
+  finished_at  timestamptz,
+  error        text
+);
+
+CREATE INDEX IF NOT EXISTS proactive_jobs_user_type_idx
+  ON proactive_jobs (user_id, job_type, started_at DESC);
+
+CREATE INDEX IF NOT EXISTS proactive_jobs_undelivered_idx
+  ON proactive_jobs (user_id, delivered)
+  WHERE delivered = false AND status = 'done';
+
+-- ── Follow-up thread tracking ─────────────────────────────────────────────────
+-- Tracks "I'll get back to them" commitments detected in email or voice.
+CREATE TABLE IF NOT EXISTS follow_up_threads (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         text        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  thread_id       text,
+  counterparty    text        NOT NULL,
+  commitment_text text        NOT NULL,
+  detected_at     timestamptz NOT NULL DEFAULT now(),
+  due_hint        text,
+  due_at          timestamptz,
+  nudge_count     int         NOT NULL DEFAULT 0,
+  last_nudged_at  timestamptz,
+  status          text        NOT NULL DEFAULT 'open',
+  source          text        NOT NULL DEFAULT 'email',
+  recall_item_id  uuid        REFERENCES recall_items(id)
+);
+
+CREATE INDEX IF NOT EXISTS follow_up_threads_user_status_idx
+  ON follow_up_threads (user_id, status, due_at);
+
+-- ── User behavior patterns ────────────────────────────────────────────────────
+-- Stores repeated query patterns extracted by the nightly pattern_learn job.
+-- Promoted to auto_run=true when frequency >= 3 AND confidence >= 0.8.
+CREATE TABLE IF NOT EXISTS user_behavior_patterns (
+  id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id        text        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  pattern_type   text        NOT NULL,
+  query_template text,
+  frequency      int         NOT NULL DEFAULT 1,
+  auto_run       boolean     NOT NULL DEFAULT false,
+  confidence     float       NOT NULL DEFAULT 0.0,
+  last_seen_at   timestamptz NOT NULL DEFAULT now(),
+  first_seen_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, pattern_type, query_template)
+);
+
+-- ── Users: proactive preferences + checkin tracking ───────────────────────────
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS timezone               text    DEFAULT 'UTC',
+  ADD COLUMN IF NOT EXISTS proactive_morning_brief boolean DEFAULT true,
+  ADD COLUMN IF NOT EXISTS morning_brief_hour     int     DEFAULT 7,
+  ADD COLUMN IF NOT EXISTS last_morning_brief_at  timestamptz,
+  ADD COLUMN IF NOT EXISTS last_checkin_at        timestamptz;
+
+-- ── Agent chats: proactive inbox flag ────────────────────────────────────────
+ALTER TABLE agent_chats
+  ADD COLUMN IF NOT EXISTS is_proactive_inbox boolean NOT NULL DEFAULT false;
+
+-- Ensures at most one proactive inbox chat per user.
+CREATE UNIQUE INDEX IF NOT EXISTS agent_chats_proactive_inbox_per_user
+  ON agent_chats (user_id) WHERE is_proactive_inbox = true;
+
 -- ── Migration helpers (run once after SSO is set up) ─────────────────────────
 -- Add user_id to existing tables if upgrading from schema without it:
 --   ALTER TABLE recall_items ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id);

@@ -203,6 +203,138 @@ export async function markRemindersAsMissed(): Promise<{ id: string; content: st
   return data.items;
 }
 
+// ── Proactive stream ──────────────────────────────────────────────────────────
+
+export interface ProactiveJobResult {
+  text: string;
+  email_cards: unknown[];
+  calendar_cards: unknown[];
+  task_cards: unknown[];
+  metadata?: Record<string, unknown>;
+}
+
+export type ProactiveStreamEvent =
+  | { type: "connected"; proactive_chat_id: string }
+  | { type: "proactive_job"; id: string; job_type: string; result: ProactiveJobResult; proactive_chat_id: string; timestamp: string }
+  | { type: "heartbeat" }
+  | { type: "error"; message: string };
+
+/**
+ * Connect to the proactive SSE stream. Calls `onEvent` for each parsed event.
+ * Returns a cancel function — call it to abort the connection.
+ *
+ * Reconnects automatically with 5s back-off on connection drop.
+ * Already-seen job IDs are tracked in sessionStorage to prevent duplicate delivery.
+ */
+export function connectProactiveStream(
+  onEvent: (event: ProactiveStreamEvent) => void,
+): () => void {
+  let cancelled = false;
+  let controller: AbortController | null = null;
+
+  const SEEN_KEY = "recall_proactive_seen_ids";
+
+  function getSeenIds(): Set<string> {
+    try {
+      const raw = sessionStorage.getItem(SEEN_KEY);
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set();
+    }
+  }
+
+  function markSeen(id: string): void {
+    const ids = getSeenIds();
+    ids.add(id);
+    try {
+      sessionStorage.setItem(SEEN_KEY, JSON.stringify(Array.from(ids)));
+    } catch { /* quota exceeded — ignore */ }
+  }
+
+  async function connect() {
+    while (!cancelled) {
+      controller = new AbortController();
+      try {
+        const base = await getBase();
+        const headers = await getAuthHeader();
+        const res = await fetch(`${base}/agent/proactive/stream`, {
+          headers,
+          signal: controller.signal,
+        });
+        if (!res.ok || !res.body) {
+          await new Promise((r) => setTimeout(r, 5000));
+          continue;
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (!cancelled) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() ?? "";
+          for (const part of parts) {
+            if (!part.startsWith("data: ")) continue;
+            try {
+              const event = JSON.parse(part.slice(6)) as ProactiveStreamEvent;
+              if (event.type === "proactive_job") {
+                const seenIds = getSeenIds();
+                if (seenIds.has(event.id)) continue;
+                markSeen(event.id);
+                onEvent(event);
+                // Ack delivery asynchronously — fire-and-forget
+                void ackProactiveJob(event.id);
+              } else {
+                onEvent(event);
+              }
+            } catch { /* skip malformed */ }
+          }
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") break;
+      }
+      if (!cancelled) await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+
+  void connect();
+
+  return () => {
+    cancelled = true;
+    controller?.abort();
+  };
+}
+
+export async function ackProactiveJob(id: string): Promise<void> {
+  try {
+    const res = await fetch(`${await getBase()}/agent/proactive/ack`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+      body: JSON.stringify({ id }),
+    });
+    if (!res.ok) throw new Error(String(res.status));
+  } catch { /* best-effort */ }
+}
+
+export interface BehaviorPattern {
+  id: string;
+  pattern_type: string;
+  query_template: string;
+  frequency: number;
+  auto_run: boolean;
+  confidence: number;
+  last_seen_at: string;
+  first_seen_at: string;
+}
+
+export async function getPatterns(): Promise<BehaviorPattern[]> {
+  const res = await fetch(`${await getBase()}/debug/patterns`, { headers: await getAuthHeader() });
+  if (!res.ok) throw new Error(`getPatterns failed: ${res.status}`);
+  const data = (await res.json()) as { patterns: BehaviorPattern[] };
+  return data.patterns ?? [];
+}
+
 export function getOrCreateSessionId(): string {
   let id = localStorage.getItem("recall_session_id");
   if (!id) {

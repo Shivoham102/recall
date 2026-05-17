@@ -9,8 +9,8 @@ import {
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { supabase } from "../services/supabase";
-import { suggestAgentChatTitle } from "../services/api";
-import { AgentChat, AgentTurn } from "../types/agentTurn";
+import { connectProactiveStream, suggestAgentChatTitle } from "../services/api";
+import { AgentChat, AgentTurn, CalendarCard, EmailCard, TaskCard } from "../types/agentTurn";
 import { firstUserMessageText, normalizeStoredAgentChat } from "../utils/agentChatDisplay";
 
 const PAGE_SIZE = 50;
@@ -44,6 +44,8 @@ interface AgentChatsContextValue {
   flushNow: () => Promise<void>;
   /** LLM sidebar title from the first user message only; once per chat unless title is null. */
   refreshChatTitleFromServer: (chatId: string) => Promise<void>;
+  proactiveUnread: boolean;
+  clearProactiveUnread: () => void;
 }
 
 const AgentChatsContext = createContext<AgentChatsContextValue | null>(null);
@@ -66,6 +68,11 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
   const [hasMore, setHasMore] = useState(true);
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [sidebarPinned, setSidebarPinned] = useState(false);
+
+  const [proactiveUnread, setProactiveUnread] = useState<boolean>(() => {
+    try { return localStorage.getItem("recall_proactive_unread") === "1"; } catch { return false; }
+  });
+  const proactiveChatIdRef = useRef<string | null>(null);
 
   const chatsRef = useRef<AgentChat[]>([]);
   /** Chats the user explicitly renamed in this app session — do not overwrite with auto titles. */
@@ -286,6 +293,54 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
     setHasMore(normalized.length === PAGE_SIZE);
   }, [cursor, hasMore, userId]);
 
+  const clearProactiveUnread = useCallback(() => {
+    setProactiveUnread(false);
+    try { localStorage.removeItem("recall_proactive_unread"); } catch { /* ignore */ }
+  }, []);
+
+  // Proactive SSE subscription.
+  useEffect(() => {
+    const cancel = connectProactiveStream((event) => {
+      if (event.type === "connected") {
+        const chatId = event.proactive_chat_id;
+        proactiveChatIdRef.current = chatId;
+        if (!chatsRef.current.find((c) => c.id === chatId)) {
+          void supabase
+            .from("agent_chats")
+            .select("*")
+            .eq("id", chatId)
+            .single()
+            .then(({ data }) => {
+              if (data) {
+                const chat = normalizeStoredAgentChat(data as Record<string, unknown>);
+                setChats((prev) => {
+                  if (prev.find((c) => c.id === chat.id)) return prev;
+                  return [chat, ...prev];
+                });
+              }
+            });
+        }
+      } else if (event.type === "proactive_job") {
+        const chatId = proactiveChatIdRef.current;
+        if (!chatId) return;
+        const newTurn: AgentTurn = {
+          id: event.id,
+          role: "proactive",
+          text: event.result.text,
+          intentType: event.job_type,
+          emailCards: event.result.email_cards as EmailCard[],
+          calendarCards: event.result.calendar_cards as CalendarCard[],
+          taskCards: event.result.task_cards as TaskCard[],
+          timestamp: event.timestamp,
+        };
+        replaceChatTurns(chatId, (prev) => [...prev, newTurn]);
+        setProactiveUnread(true);
+        try { localStorage.setItem("recall_proactive_unread", "1"); } catch { /* ignore */ }
+      }
+    });
+    return cancel;
+  }, [replaceChatTurns]);
+
   // Initial load and legacy migration.
   useEffect(() => {
     let cancelled = false;
@@ -388,6 +443,8 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
     patchTurnInChat,
     flushNow,
     refreshChatTitleFromServer,
+    proactiveUnread,
+    clearProactiveUnread,
   }), [
     chats,
     activeChat,
@@ -407,6 +464,8 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
     patchTurnInChat,
     flushNow,
     refreshChatTitleFromServer,
+    proactiveUnread,
+    clearProactiveUnread,
   ]);
 
   return <AgentChatsContext.Provider value={value}>{children}</AgentChatsContext.Provider>;

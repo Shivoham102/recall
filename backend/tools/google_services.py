@@ -15,7 +15,6 @@ from google_auth import get_credentials, get_credentials_for_user
 import context
 from db import get_admin_db
 
-_CHECKIN_FILE = pathlib.Path(__file__).parent.parent / "last_checkin.json"
 _STYLE_PROFILE_TABLE = "email_style_profiles"
 _STYLE_EVENT_TABLE = "email_style_events"
 _STYLE_SAMPLE_TARGET = 10
@@ -298,16 +297,25 @@ def _make_reply_message(
 
 
 def _load_last_checkin() -> datetime | None:
+    user_id = context.current_user_id.get(None)
+    if not user_id:
+        return None
     try:
-        data = json.loads(_CHECKIN_FILE.read_text())
-        return datetime.fromisoformat(data["ts"]).replace(tzinfo=timezone.utc)
+        row = get_admin_db().table("users").select("last_checkin_at").eq("id", user_id).single().execute()
+        val = row.data.get("last_checkin_at") if row.data else None
+        if not val:
+            return None
+        return datetime.fromisoformat(val).replace(tzinfo=timezone.utc)
     except Exception:
         return None
 
 
 def _save_last_checkin(ts: datetime) -> None:
+    user_id = context.current_user_id.get(None)
+    if not user_id:
+        return
     try:
-        _CHECKIN_FILE.write_text(json.dumps({"ts": ts.isoformat()}))
+        get_admin_db().table("users").update({"last_checkin_at": ts.isoformat()}).eq("id", user_id).execute()
     except Exception:
         pass
 

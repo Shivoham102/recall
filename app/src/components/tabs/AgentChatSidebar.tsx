@@ -10,6 +10,7 @@ interface Props {
   loadError: string | null;
   saveError: string | null;
   hasMore: boolean;
+  proactiveUnread: boolean;
   onTogglePinned: () => void;
   onNewChat: () => void;
   onSelectChat: (chatId: string) => void;
@@ -66,6 +67,7 @@ export function AgentChatSidebar({
   loadError,
   saveError,
   hasMore,
+  proactiveUnread,
   onTogglePinned,
   onNewChat,
   onSelectChat,
@@ -152,7 +154,12 @@ export function AgentChatSidebar({
         {chats.map((chat) => (
           <div
             key={chat.id}
-            className={`agent-chat-row ${chat.id === activeChatId ? "agent-chat-row--active" : ""} ${menuOpenId === chat.id ? "agent-chat-row--menu-open" : ""}`}
+            className={[
+              "agent-chat-row",
+              chat.id === activeChatId ? "agent-chat-row--active" : "",
+              menuOpenId === chat.id ? "agent-chat-row--menu-open" : "",
+              chat.is_proactive_inbox ? "agent-chat-row--proactive" : "",
+            ].filter(Boolean).join(" ")}
           >
             {renamingId === chat.id ? (
               <form
@@ -181,7 +188,13 @@ export function AgentChatSidebar({
                   className="agent-chat-row__main"
                   onClick={() => onSelectChat(chat.id)}
                 >
-                  <div className="agent-chat-row__title">{sidebarDisplayTitle(chat)}</div>
+                  <div className="agent-chat-row__title">
+                    {chat.is_proactive_inbox ? "◈ " : ""}
+                    {sidebarDisplayTitle(chat)}
+                    {chat.is_proactive_inbox && proactiveUnread && (
+                      <span className="agent-chat-row__unread" aria-label="New proactive updates" />
+                    )}
+                  </div>
                   <div className="agent-chat-row__meta">
                     <span>{relativeTime(chat.updated_at)}</span>
                   </div>

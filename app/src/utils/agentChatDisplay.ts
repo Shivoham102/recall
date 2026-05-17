@@ -12,15 +12,17 @@ function sanitizeTurns(raw: unknown): AgentTurn[] {
     .map((item) => ({
       id: typeof item.id === "string" ? item.id : crypto.randomUUID(),
       role:
-        item.role === "assistant" || item.role === "system" || item.role === "user"
+        item.role === "assistant" || item.role === "system" || item.role === "user" || item.role === "proactive"
           ? item.role
           : "system",
       text: typeof item.text === "string" ? item.text : "",
       intentType: typeof item.intentType === "string" ? item.intentType : undefined,
       steps: Array.isArray(item.steps) ? (item.steps as AgentTurn["steps"]) : undefined,
       emailCards: Array.isArray(item.emailCards) ? (item.emailCards as AgentTurn["emailCards"]) : undefined,
+      calendarCards: Array.isArray(item.calendarCards) ? (item.calendarCards as AgentTurn["calendarCards"]) : undefined,
       taskCards: Array.isArray(item.taskCards) ? (item.taskCards as AgentTurn["taskCards"]) : undefined,
       pending: typeof item.pending === "boolean" ? item.pending : undefined,
+      timestamp: typeof item.timestamp === "string" ? item.timestamp : undefined,
     }));
 }
 
@@ -39,6 +41,7 @@ export function normalizeStoredAgentChat(raw: Record<string, unknown>): AgentCha
     archived_at: typeof raw.archived_at === "string" ? raw.archived_at : null,
     created_at: String(raw.created_at ?? nowIso()),
     updated_at: String(raw.updated_at ?? nowIso()),
+    is_proactive_inbox: raw.is_proactive_inbox === true,
   };
 }
 

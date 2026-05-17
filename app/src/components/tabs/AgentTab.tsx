@@ -26,6 +26,25 @@ const INTENT_COLORS: Record<string, string> = {
   update: "#ffcc00",
 };
 
+const PROACTIVE_BADGE_LABELS: Record<string, string> = {
+  morning_brief: "MORNING BRIEF",
+  email_triage: "EMAIL TRIAGE",
+  follow_up_scan: "FOLLOW-UP",
+  pattern_learn: "PATTERN",
+  smart_reminder: "REMINDER",
+};
+
+function fmtProactiveTime(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const timeStr = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === now.toDateString()) return `Today ${timeStr}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return `Yesterday ${timeStr}`;
+  return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${timeStr}`;
+}
+
 const STEP_LABELS: Record<string, string> = {
   gmail_get_updates: "checking inbox",
   surface_cards: "selecting highlights",
@@ -179,6 +198,8 @@ export function AgentTab() {
     replaceChatTurns,
     patchTurnInChat,
     refreshChatTitleFromServer,
+    proactiveUnread,
+    clearProactiveUnread,
   } = useAgentChats();
 
   const [orbError, setOrbError] = useState(false);
@@ -382,10 +403,14 @@ export function AgentTab() {
     return () => el.removeEventListener("mousemove", onMove);
   }, [sidebarPinned]);
 
-  const chatsSorted = useMemo(
-    () => [...chats].sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
-    [chats],
-  );
+  // Proactive inbox chat always pinned first; remaining chats sorted by updated_at
+  const chatsSorted = useMemo(() => {
+    const inbox = chats.filter((c) => c.is_proactive_inbox);
+    const rest = chats
+      .filter((c) => !c.is_proactive_inbox)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    return [...inbox, ...rest];
+  }, [chats]);
 
   if (loading) return <div className="tab-loading">Loading chats...</div>;
 
@@ -422,7 +447,12 @@ export function AgentTab() {
           }
         }}
         onNewChat={() => { createChat({ activate: true }); }}
-        onSelectChat={(chatId) => setActiveChatId(chatId)}
+        proactiveUnread={proactiveUnread}
+        onSelectChat={(chatId) => {
+          setActiveChatId(chatId);
+          const chat = chats.find((c) => c.id === chatId);
+          if (chat?.is_proactive_inbox && proactiveUnread) clearProactiveUnread();
+        }}
         onRenameChat={(chatId, title) => { void renameChat(chatId, title); }}
         onDeleteChat={(chatId) => { void deleteChat(chatId); }}
         onLoadMore={() => { void loadMore(); }}
@@ -448,15 +478,26 @@ export function AgentTab() {
           )}
           {activeTurns.map((t) => (
             <div key={t.id} className={`turn turn--${t.role}${t.pending ? " turn--pending" : ""}`}>
-              {t.intentType && t.role === "user" && (
-                <span
-                  className="turn__badge"
-                  style={{ color: INTENT_COLORS[t.intentType] ?? "#aaa", borderColor: INTENT_COLORS[t.intentType] ?? "#aaa" }}
-                >
-                  {t.intentType.replace("_", " ")}
-                </span>
+              {t.role === "proactive" ? (
+                <div className="turn__proactive-header">
+                  <span className="turn__proactive-badge">
+                    {PROACTIVE_BADGE_LABELS[t.intentType ?? ""] ?? (t.intentType?.toUpperCase() ?? "RECALL")}
+                  </span>
+                  {t.timestamp && (
+                    <span className="turn__proactive-time">◷ {fmtProactiveTime(t.timestamp)}</span>
+                  )}
+                </div>
+              ) : (
+                t.intentType && t.role === "user" && (
+                  <span
+                    className="turn__badge"
+                    style={{ color: INTENT_COLORS[t.intentType] ?? "#aaa", borderColor: INTENT_COLORS[t.intentType] ?? "#aaa" }}
+                  >
+                    {t.intentType.replace("_", " ")}
+                  </span>
+                )
               )}
-              {t.steps && t.steps.length > 0 && <StepsGroup steps={t.steps} />}
+              {t.role !== "proactive" && t.steps && t.steps.length > 0 && <StepsGroup steps={t.steps} />}
               {t.text && <p>{t.text}</p>}
               {t.emailCards && t.emailCards.length > 0 && <EmailCardGrid cards={t.emailCards} />}
               {t.calendarCards && t.calendarCards.length > 0 && <CalendarCardGrid cards={t.calendarCards} />}

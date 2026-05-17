@@ -1,4 +1,4 @@
-export type AgentTurnRole = "user" | "assistant" | "system";
+export type AgentTurnRole = "user" | "assistant" | "system" | "proactive";
 
 export interface AgentStep {
   name: string;
@@ -44,6 +44,8 @@ export interface AgentTurn {
   calendarCards?: CalendarCard[];
   taskCards?: TaskCard[];
   pending?: boolean;
+  /** ISO timestamp for proactive turns */
+  timestamp?: string;
 }
 
 export interface LastCaptureMeta {
@@ -63,4 +65,5 @@ export interface AgentChat {
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+  is_proactive_inbox?: boolean;
 }

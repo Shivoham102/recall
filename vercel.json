@@ -3,6 +3,26 @@
     {
       "path": "/jobs/refresh-email-style-profiles",
       "schedule": "0 8 * * 0"
+    },
+    {
+      "path": "/jobs/morning-brief",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/jobs/email-triage",
+      "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/jobs/follow-up-scan",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/jobs/pattern-learn",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/jobs/smart-reminder",
+      "schedule": "*/15 * * * *"
     }
   ],
   "builds": [

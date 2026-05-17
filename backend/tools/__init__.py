@@ -341,3 +341,13 @@ if _google_tools_available:
         "calendar_create": calendar_create,
         "surface_calendar": surface_calendar,
     })
+
+# Proactive (headless) tool subset — excludes all surface_* rendering tools
+# and file_create (desktop-only). Used by backend/proactive/runner.py.
+_PROACTIVE_NAMES = {
+    "recall_search", "recall_update_item",
+    "gmail_get_updates", "gmail_find_contact", "gmail_find_followup_thread",
+    "gmail_get_thread_context", "calendar_list",
+}
+PROACTIVE_TOOL_DEFINITIONS = [t for t in TOOL_DEFINITIONS if t["name"] in _PROACTIVE_NAMES]
+PROACTIVE_TOOL_REGISTRY: dict = {k: v for k, v in TOOL_REGISTRY.items() if k in _PROACTIVE_NAMES}
