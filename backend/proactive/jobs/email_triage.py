@@ -1,7 +1,8 @@
 """
-Email triage — scripted pipeline (runs every 2h).
+Email triage — scripted pipeline (manual trigger only).
 
 Scans inbox for high-priority unread emails and surfaces them.
+Not a scheduled cron — call via POST /agent/proactive/trigger {job_type: "email_triage"}.
 Delivers only when high-priority items are found; silent otherwise.
 """
 import tools.google_services as gsvcs

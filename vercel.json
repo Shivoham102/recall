@@ -9,20 +9,12 @@
       "schedule": "0 7 * * *"
     },
     {
-      "path": "/jobs/email-triage",
-      "schedule": "0 */2 * * *"
-    },
-    {
       "path": "/jobs/follow-up-scan",
-      "schedule": "0 * * * *"
+      "schedule": "0 15 * * *"
     },
     {
       "path": "/jobs/pattern-learn",
       "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/jobs/smart-reminder",
-      "schedule": "*/15 * * * *"
     }
   ],
   "builds": [
