@@ -1,4 +1,3 @@
-import functools
 import os
 import sys
 import socket
@@ -18,7 +17,6 @@ else:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
 from routes.items import router as items_router
 from routes.reminders import router as reminders_router
 from routes.voice import router as voice_router
@@ -26,15 +24,6 @@ from routes.agent_stream import router as agent_stream_router
 from routes.chat_title import router as chat_title_router
 from routes.cron import router as cron_router
 from routes.proactive import router as proactive_router
-
-_STATIC = pathlib.Path(__file__).parent / "static"
-
-
-@functools.lru_cache(maxsize=None)
-def _static(name: str) -> str:
-    with open(_STATIC / name, encoding="utf-8") as f:
-        return f.read()
-
 
 app = FastAPI(title="Recall Backend")
 
@@ -52,21 +41,6 @@ app.include_router(reminders_router)
 app.include_router(voice_router)
 app.include_router(cron_router)
 app.include_router(proactive_router)
-
-
-@app.get("/", response_class=HTMLResponse)
-async def landing():
-    return HTMLResponse(_static("index.html"))
-
-
-@app.get("/privacy", response_class=HTMLResponse)
-async def privacy():
-    return HTMLResponse(_static("privacy.html"))
-
-
-@app.get("/terms", response_class=HTMLResponse)
-async def terms():
-    return HTMLResponse(_static("terms.html"))
 
 
 @app.get("/health")

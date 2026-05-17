@@ -1,32 +1,22 @@
 {
   "crons": [
-    {
-      "path": "/jobs/refresh-email-style-profiles",
-      "schedule": "0 8 * * 0"
-    },
-    {
-      "path": "/jobs/morning-brief",
-      "schedule": "0 7 * * *"
-    },
-    {
-      "path": "/jobs/follow-up-scan",
-      "schedule": "0 15 * * *"
-    },
-    {
-      "path": "/jobs/pattern-learn",
-      "schedule": "0 2 * * *"
-    }
+    { "path": "/jobs/refresh-email-style-profiles", "schedule": "0 8 * * 0" },
+    { "path": "/jobs/morning-brief",                "schedule": "0 7 * * *" },
+    { "path": "/jobs/follow-up-scan",               "schedule": "0 15 * * *" },
+    { "path": "/jobs/pattern-learn",                "schedule": "0 2 * * *" }
   ],
   "builds": [
-    {
-      "src": "backend/main.py",
-      "use": "@vercel/python"
-    }
+    { "src": "web/package.json",  "use": "@vercel/next"   },
+    { "src": "backend/main.py",   "use": "@vercel/python" }
   ],
   "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "backend/main.py"
-    }
+    { "src": "/health",           "dest": "backend/main.py" },
+    { "src": "/capture/(.*)",     "dest": "backend/main.py" },
+    { "src": "/jobs/(.*)",        "dest": "backend/main.py" },
+    { "src": "/items(.*)",        "dest": "backend/main.py" },
+    { "src": "/reminders/(.*)",   "dest": "backend/main.py" },
+    { "src": "/agent/(.*)",       "dest": "backend/main.py" },
+    { "src": "/auth/(.*)",        "dest": "backend/main.py" },
+    { "src": "/debug/(.*)",       "dest": "backend/main.py" }
   ]
 }

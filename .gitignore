@@ -42,3 +42,8 @@ backend/*.spec.bak
 # Compiled sidecar binaries — built by CI, not committed (except .gitkeep)
 app/src-tauri/binaries/*
 !app/src-tauri/binaries/.gitkeep
+
+# Next.js build output
+web/.next/
+web/next-env.d.ts
+web/tsconfig.tsbuildinfo
