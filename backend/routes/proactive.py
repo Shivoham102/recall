@@ -59,6 +59,9 @@ def _get_or_create_proactive_inbox(user_id: str) -> str:
     return insert_res.data[0]["id"]
 
 
+_TIME_BOUNDED_JOB_TYPES = {"morning_brief", "follow_up_scan"}
+
+
 def _fetch_undelivered(user_id: str, seen_ids: set[str]) -> list[dict]:
     db = get_admin_db()
     res = (
@@ -70,7 +73,27 @@ def _fetch_undelivered(user_id: str, seen_ids: set[str]) -> list[dict]:
         .order("started_at", desc=False)
         .execute()
     )
-    return [row for row in (res.data or []) if row["id"] not in seen_ids]
+    rows = [r for r in (res.data or []) if r["id"] not in seen_ids]
+
+    # For time-bounded types keep only newest; silently discard older stale instances.
+    stale_ids: list[str] = []
+    kept: list[dict] = []
+    seen_types: set[str] = set()
+    for row in reversed(rows):
+        jt = row["job_type"]
+        if jt in _TIME_BOUNDED_JOB_TYPES:
+            if jt not in seen_types:
+                seen_types.add(jt)
+                kept.append(row)
+            else:
+                stale_ids.append(row["id"])
+        else:
+            kept.append(row)
+
+    if stale_ids:
+        db.table("proactive_jobs").update({"delivered": True}).in_("id", stale_ids).execute()
+
+    return sorted(kept, key=lambda r: r["started_at"])
 
 
 @router.get("/agent/proactive/stream")
@@ -89,6 +112,17 @@ async def proactive_stream(
             return
 
         yield _sse({"type": "connected", "proactive_chat_id": chat_id})
+
+        # Fire-and-forget: mark user active so inactivity guard doesn't skip future crons.
+        asyncio.create_task(
+            asyncio.to_thread(
+                lambda: get_admin_db()
+                    .table("users")
+                    .update({"last_checkin_at": datetime.now(timezone.utc).isoformat()})
+                    .eq("id", user_id)
+                    .execute()
+            )
+        )
 
         seen_ids: set[str] = set()
         last_poll = 0.0

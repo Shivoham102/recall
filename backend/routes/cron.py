@@ -35,11 +35,30 @@ async def refresh_email_style_profiles(
     }
 
 
+INACTIVITY_DAYS = 14
+
+
+def _is_active(row: dict) -> bool:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=INACTIVITY_DAYS)
+    last = row.get("last_checkin_at")
+    if last:
+        return datetime.fromisoformat(last.replace("Z", "+00:00")) >= cutoff
+    # Never checked in — treat as active only if account is new
+    created = row.get("created_at", "")
+    return bool(created and datetime.fromisoformat(created.replace("Z", "+00:00")) >= cutoff)
+
+
 async def _run_job_for_all_users(job_type: str, context_key: str | None = None) -> dict:
-    """Run a proactive job for every user that has Google credentials configured."""
+    """Run a proactive job for every active user that has Google credentials configured."""
     db = get_admin_db()
-    res = db.table("users").select("id").not_.is_("google_access_token", "null").execute()
-    users = res.data or []
+    res = (
+        db.table("users")
+        .select("id, last_checkin_at, created_at")
+        .not_.is_("google_access_token", "null")
+        .execute()
+    )
+    all_users = res.data or []
+    users = [r for r in all_users if _is_active(r)]
     ran, skipped, failed = 0, 0, 0
     for row in users:
         result = await run_job(row["id"], job_type, context_key)
@@ -47,7 +66,7 @@ async def _run_job_for_all_users(job_type: str, context_key: str | None = None) 
             skipped += 1
         else:
             ran += 1
-    return {"ran": ran, "skipped": skipped, "failed": failed, "total_users": len(users)}
+    return {"ran": ran, "skipped": skipped, "failed": failed, "total_users": len(all_users), "inactive_skipped": len(all_users) - len(users)}
 
 
 @router.get("/jobs/morning-brief")
