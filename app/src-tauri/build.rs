@@ -1,6 +1,11 @@
 fn main() {
-    // Ensure icon asset updates invalidate Cargo's build cache.
-    println!("cargo:rerun-if-changed=icons");
+    // Rebuild whenever icons or config change so the EXE gets fresh embedded icons.
+    println!("cargo:rerun-if-changed=icons/icon.ico");
+    println!("cargo:rerun-if-changed=icons/icon.icns");
+    println!("cargo:rerun-if-changed=icons/icon.png");
+    println!("cargo:rerun-if-changed=icons/32x32.png");
+    println!("cargo:rerun-if-changed=icons/128x128.png");
+    println!("cargo:rerun-if-changed=icons/128x128@2x.png");
     println!("cargo:rerun-if-changed=../icon.svg");
     println!("cargo:rerun-if-changed=tauri.conf.json");
 

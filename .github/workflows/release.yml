@@ -53,6 +53,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri
+          key: ${{ hashFiles('app/src-tauri/icons/**', 'app/src-tauri/tauri.conf.json') }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v3
