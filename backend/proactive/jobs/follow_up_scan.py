@@ -6,10 +6,20 @@ follow_up_threads, and nudges the user for pending ones.
 """
 import asyncio
 import email.utils
+import html
+import re
 from datetime import datetime, timedelta, timezone
 
 from db import get_admin_db
 from proactive.runner import ProactiveResult
+
+_CONCLUDED_PATTERNS = re.compile(
+    r"\b(no worries|no problem|sounds good|all (set|good)|got it|noted|"
+    r"understood|will do|take care|talk soon|stay in touch|"
+    r"thanks for|thank you for|appreciate it|works for me|"
+    r"let'?s catch up|have a good|no need to|don'?t worry)\b",
+    re.IGNORECASE,
+)
 
 _COMMITMENT_QUERY = (
     '"follow up" OR "get back to you" OR "I\'ll check" OR "will send"'
@@ -22,6 +32,36 @@ _NUDGE_INTERVAL_HOURS = 48  # only re-nudge an existing item after 48h
 def _get_gmail_service():
     from tools.google_services import _gmail_service  # noqa: PLC0415
     return _gmail_service()
+
+
+def _truncate(text: str, n: int) -> str:
+    if len(text) <= n:
+        return text
+    return text[:n].rsplit(" ", 1)[0] + "..."
+
+
+def _thread_is_concluded(svc, thread_id: str) -> bool:
+    """Return True if the thread's most recent message suggests conversation concluded."""
+    try:
+        thread = svc.users().threads().get(
+            userId="me", id=thread_id, format="minimal"
+        ).execute()
+        messages = sorted(
+            thread.get("messages", []),
+            key=lambda m: int(m.get("internalDate", "0")),
+            reverse=True,
+        )
+        if not messages:
+            return False
+        latest = messages[0]
+        # Latest message is from user (SENT) — no reply yet, still open
+        if "SENT" in latest.get("labelIds", []):
+            return False
+        # Someone replied — check if snippet signals a closed conversation
+        snippet = html.unescape(latest.get("snippet", ""))
+        return bool(_CONCLUDED_PATTERNS.search(snippet))
+    except Exception:
+        return False
 
 
 def _search_commitments() -> list[dict]:
@@ -64,10 +104,10 @@ def _search_commitments() -> list[dict]:
             "thread_id": thread_id,
             "counterparty": counterparty,
             "subject": subject,
-            "commitment_text": snippet,
+            "commitment_text": html.unescape(snippet),
         })
 
-    return threads
+    return [t for t in threads if not _thread_is_concluded(svc, t["thread_id"])]
 
 
 async def run(user_id: str, context_key: str | None = None) -> ProactiveResult:
@@ -140,8 +180,8 @@ async def run(user_id: str, context_key: str | None = None) -> ProactiveResult:
         {
             "id": item.get("id", item.get("thread_id", "")),
             "content": (
-                f"Follow up with {item.get('counterparty', item.get('counterparty', '?'))}: "
-                + (item.get("commitment_text") or item.get("subject", ""))[:100]
+                f"Follow up with {item.get('counterparty', '?')}: "
+                + _truncate(item.get("commitment_text") or item.get("subject", ""), 100)
             ),
             "intent_type": "follow_up",
             "status": "open",

@@ -1,35 +1,37 @@
-export default function LogoIcon({
-  size = 28,
-  opacity,
-}: {
-  size?: number
-  opacity?: number
-}) {
+export default function LogoIcon({ size = 28 }: { size?: number }) {
+  const id = `logo-${size}`
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 28 28"
-      fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
     >
-      <path
-        d="M14 3 A11 11 0 1 1 25 14"
-        stroke="#00e5ff"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        opacity={opacity}
-      />
-      <path
-        d="M21 10 L25 14 L21 17"
-        stroke="#00e5ff"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        opacity={opacity}
-      />
-      <circle cx="14" cy="14" r="2.5" fill="#00e5ff" opacity={opacity} />
+      <defs>
+        <radialGradient id={`${id}-base`} cx="50%" cy="50%" r="50%" gradientUnits="objectBoundingBox">
+          <stop offset="0%"   stopColor="#1122bb" />
+          <stop offset="28%"  stopColor="#1122bb" />
+          <stop offset="78%"  stopColor="#05081e" />
+        </radialGradient>
+        <radialGradient id={`${id}-hl`} cx="36%" cy="33%" r="44%" gradientUnits="objectBoundingBox">
+          <stop offset="0%" stopColor="#b8d4ff" stopOpacity="0.9" />
+          <stop offset="100%" stopColor="#b8d4ff" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id={`${id}-mid`} cx="66%" cy="66%" r="52%" gradientUnits="objectBoundingBox">
+          <stop offset="0%" stopColor="#3366ee" stopOpacity="0.8" />
+          <stop offset="100%" stopColor="#3366ee" stopOpacity="0" />
+        </radialGradient>
+        <filter id={`${id}-glow`} x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="1.2" />
+        </filter>
+      </defs>
+      {/* Outer glow */}
+      <circle cx="14" cy="14" r="11" fill="#00e5ff" opacity="0.22" filter={`url(#${id}-glow)`} />
+      {/* Orb layers */}
+      <circle cx="14" cy="14" r="11" fill={`url(#${id}-base)`} />
+      <circle cx="14" cy="14" r="11" fill={`url(#${id}-mid)`} />
+      <circle cx="14" cy="14" r="11" fill={`url(#${id}-hl)`} />
     </svg>
   )
 }

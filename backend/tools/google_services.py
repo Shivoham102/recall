@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import email.utils
+import html
 import json
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -443,7 +444,7 @@ async def gmail_get_updates(inp: dict) -> dict:
             emails.append({
                 "sender": sender,
                 "subject": subject,
-                "snippet": detail.get("snippet", "")[:200],
+                "snippet": html.unescape(detail.get("snippet", ""))[:200],
                 "received": time_str,
                 "unread": is_unread,
                 "important": is_important,
@@ -631,7 +632,7 @@ async def gmail_find_followup_thread(inp: dict) -> dict:
                 from_raw = headers.get("From", "")
                 to_raw = headers.get("To", "")
                 subject = headers.get("Subject", "(no subject)")
-                snippet = detail.get("snippet", "")[:240]
+                snippet = html.unescape(detail.get("snippet", ""))[:240]
                 date_raw = headers.get("Date", "")
 
                 display_from, addr_from = email.utils.parseaddr(from_raw)

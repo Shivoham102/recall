@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { captureStream, playAudio } from "../../services/api";
@@ -87,6 +87,18 @@ function StepsGroup({ steps }: { steps: AgentStep[] }) {
       )}
     </div>
   );
+}
+
+function DayDivider({ timestamp }: { timestamp: string }) {
+  const d = new Date(timestamp);
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  let label: string;
+  if (d.toDateString() === now.toDateString()) label = "Today";
+  else if (d.toDateString() === yesterday.toDateString()) label = "Yesterday";
+  else label = d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+  return <div className="day-divider"><span className="day-divider__label">{label}</span></div>;
 }
 
 function EmailCardGrid({ cards }: { cards: EmailCard[] }) {
@@ -403,6 +415,18 @@ export function AgentTab() {
     return () => el.removeEventListener("mousemove", onMove);
   }, [sidebarPinned]);
 
+  const turnsWithMeta = useMemo(() => {
+    let lastDate = "";
+    return activeTurns.map((t) => {
+      let showDivider = false;
+      if (t.timestamp) {
+        const d = new Date(t.timestamp).toDateString();
+        if (d !== lastDate) { lastDate = d; showDivider = true; }
+      }
+      return { turn: t, showDivider };
+    });
+  }, [activeTurns]);
+
   // Proactive inbox chat always pinned first; remaining chats sorted by updated_at
   const chatsSorted = useMemo(() => {
     const inbox = chats.filter((c) => c.is_proactive_inbox);
@@ -476,33 +500,36 @@ export function AgentTab() {
               <p>Your conversation will appear here.</p>
             </div>
           )}
-          {activeTurns.map((t) => (
-            <div key={t.id} className={`turn turn--${t.role}${t.pending ? " turn--pending" : ""}`}>
-              {t.role === "proactive" ? (
-                <div className="turn__proactive-header">
-                  <span className="turn__proactive-badge">
-                    {PROACTIVE_BADGE_LABELS[t.intentType ?? ""] ?? (t.intentType?.toUpperCase() ?? "RECALL")}
-                  </span>
-                  {t.timestamp && (
-                    <span className="turn__proactive-time">◷ {fmtProactiveTime(t.timestamp)}</span>
-                  )}
-                </div>
-              ) : (
-                t.intentType && t.role === "user" && (
-                  <span
-                    className="turn__badge"
-                    style={{ color: INTENT_COLORS[t.intentType] ?? "#aaa", borderColor: INTENT_COLORS[t.intentType] ?? "#aaa" }}
-                  >
-                    {t.intentType.replace("_", " ")}
-                  </span>
-                )
-              )}
-              {t.role !== "proactive" && t.steps && t.steps.length > 0 && <StepsGroup steps={t.steps} />}
-              {t.text && <p>{t.text}</p>}
-              {t.emailCards && t.emailCards.length > 0 && <EmailCardGrid cards={t.emailCards} />}
-              {t.calendarCards && t.calendarCards.length > 0 && <CalendarCardGrid cards={t.calendarCards} />}
-              {t.taskCards && t.taskCards.length > 0 && <TaskCardGrid cards={t.taskCards} />}
-            </div>
+          {turnsWithMeta.map(({ turn: t, showDivider }) => (
+            <Fragment key={t.id}>
+              {showDivider && t.timestamp && <DayDivider timestamp={t.timestamp} />}
+              <div className={`turn turn--${t.role}${t.pending ? " turn--pending" : ""}`}>
+                {t.role === "proactive" ? (
+                  <div className="turn__proactive-header">
+                    <span className="turn__proactive-badge">
+                      {PROACTIVE_BADGE_LABELS[t.intentType ?? ""] ?? (t.intentType?.toUpperCase() ?? "RECALL")}
+                    </span>
+                    {t.timestamp && (
+                      <span className="turn__proactive-time">◷ {fmtProactiveTime(t.timestamp)}</span>
+                    )}
+                  </div>
+                ) : (
+                  t.intentType && t.role === "user" && (
+                    <span
+                      className="turn__badge"
+                      style={{ color: INTENT_COLORS[t.intentType] ?? "#aaa", borderColor: INTENT_COLORS[t.intentType] ?? "#aaa" }}
+                    >
+                      {t.intentType.replace("_", " ")}
+                    </span>
+                  )
+                )}
+                {t.role !== "proactive" && t.steps && t.steps.length > 0 && <StepsGroup steps={t.steps} />}
+                {t.text && <p>{t.text}</p>}
+                {t.emailCards && t.emailCards.length > 0 && <EmailCardGrid cards={t.emailCards} />}
+                {t.calendarCards && t.calendarCards.length > 0 && <CalendarCardGrid cards={t.calendarCards} />}
+                {t.taskCards && t.taskCards.length > 0 && <TaskCardGrid cards={t.taskCards} />}
+              </div>
+            </Fragment>
           ))}
           <div ref={bottomRef} />
         </div>
