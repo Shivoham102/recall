@@ -66,6 +66,7 @@ export default function DownloadButtons() {
   }, [])
 
   return (
+    <>
     <div className="dl-row">
       <a
         ref={winRef}
@@ -107,5 +108,18 @@ export default function DownloadButtons() {
         </span>
       </a>
     </div>
+    <p className="dl-oauth-note">
+      App is not yet Google-verified. If you want access, reach out to{' '}
+      <a
+        href="https://www.linkedin.com/in/shivohamangal/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="dl-oauth-link"
+      >
+        Shivoham Angal
+      </a>{' '}
+      to be added as a test user.
+    </p>
+    </>
   )
 }

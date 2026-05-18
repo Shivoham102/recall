@@ -26,7 +26,17 @@ export default function Footer() {
             </a>
           </li>
         </ul>
-        <span className="footer-attr">Built by Shivoham Angal</span>
+        <span className="footer-attr">
+          Built by{' '}
+          <a
+            href="https://www.linkedin.com/in/shivohamangal/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="footer-attr-link"
+          >
+            Shivoham Angal
+          </a>
+        </span>
       </div>
     </footer>
   )

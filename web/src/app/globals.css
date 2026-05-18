@@ -182,6 +182,9 @@ nav {
 .dl-text { display: flex; flex-direction: column; gap: 1px; text-align: left; }
 .dl-label { font-size: 13px; font-weight: 600; color: #d8d8f0; }
 .dl-arch { font-size: 11px; color: rgba(200,200,230,0.42); font-weight: 400; }
+.dl-oauth-note { margin-top: 16px; font-size: 12px; color: rgba(200,200,230,0.38); text-align: center; }
+.dl-oauth-link { color: #00e5ff; text-decoration: none; font-weight: 600; }
+.dl-oauth-link:hover { text-decoration: underline; }
 
 /* ─── Scroll hint ─── */
 .scroll-hint {
@@ -296,6 +299,8 @@ footer { position: relative; z-index: 1; border-top: 1px solid rgba(0,229,255,0.
 .footer-links a { color: rgba(200,200,230,0.35); text-decoration: none; font-size: 12px; transition: color 0.15s; }
 .footer-links a:hover { color: #00e5ff; }
 .footer-attr { font-size: 12px; color: rgba(200,200,230,0.28); }
+.footer-attr-link { color: #00e5ff; text-decoration: none; font-weight: 600; }
+.footer-attr-link:hover { text-decoration: underline; }
 
 /* ─── Legal pages ─── */
 .legal-wrap { max-width: 720px; margin: 0 auto; padding: 88px 40px 100px; }
