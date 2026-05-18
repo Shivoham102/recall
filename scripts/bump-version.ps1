@@ -1,13 +1,13 @@
-# Usage: ./scripts/bump-version.ps1 0.2.0
-# Updates version in tauri.conf.json, app/package.json, and Cargo.toml.
-# Then prints the git commands to commit, tag, and push.
+# Usage: ./scripts/bump-version.ps1 0.7.0
+# Bumps version in all three places, commits, tags, and pushes.
+# Always run this before tagging a release — never tag manually.
 
 param([Parameter(Mandatory)][string]$Version)
 
 $root = Split-Path $PSScriptRoot -Parent
 $utf8 = [System.Text.UTF8Encoding]::new($false)  # UTF-8 without BOM
 
-# tauri.conf.json — rewrite as clean JSON (no BOM, no escaped ampersands)
+# tauri.conf.json
 $tauriPath = Join-Path $root "app\src-tauri\tauri.conf.json"
 $tauri = Get-Content $tauriPath -Raw | ConvertFrom-Json
 $tauri.version = $Version
@@ -15,14 +15,14 @@ $json = $tauri | ConvertTo-Json -Depth 10
 [System.IO.File]::WriteAllText($tauriPath, $json, $utf8)
 Write-Host "Updated $tauriPath"
 
-# app/package.json — patch version field only, preserve formatting
+# app/package.json
 $pkgPath = Join-Path $root "app\package.json"
 $content = Get-Content $pkgPath -Raw
 $content = $content -replace '"version"\s*:\s*"[^"]*"', """version"": ""$Version"""
 [System.IO.File]::WriteAllText($pkgPath, $content, $utf8)
 Write-Host "Updated $pkgPath"
 
-# Cargo.toml — patch first version line under [package]
+# app/src-tauri/Cargo.toml
 $cargoPath = Join-Path $root "app\src-tauri\Cargo.toml"
 $cargo = Get-Content $cargoPath
 $inPackage = $false
@@ -38,10 +38,13 @@ $updated = foreach ($line in $cargo) {
 [System.IO.File]::WriteAllText($cargoPath, ($updated -join "`n") + "`n", $utf8)
 Write-Host "Updated $cargoPath"
 
+# Commit, tag, push
+Set-Location $root
+git add app/src-tauri/tauri.conf.json app/package.json app/src-tauri/Cargo.toml
+git commit -m "chore: bump version to $Version"
+git tag "v$Version"
+git push origin master
+git push origin "v$Version"
+
 Write-Host ""
-Write-Host "Version bumped to $Version. Run:"
-Write-Host "  git add -A"
-Write-Host "  git commit -m `"chore: v$Version`""
-Write-Host "  git tag v$Version"
-Write-Host "  git push origin master"
-Write-Host "  git push origin v$Version"
+Write-Host "Released v$Version — GitHub Actions building installers now."
