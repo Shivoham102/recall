@@ -30,7 +30,7 @@ _INTENT_LABELS: dict[str, str] = {
 }
 
 
-async def run(user_id: str, context_key: str | None = None) -> ProactiveResult:
+async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC") -> ProactiveResult:
     db = get_admin_db()
     now = datetime.now(timezone.utc)
     cutoff = (now - timedelta(days=_LOOKBACK_DAYS)).isoformat()
@@ -83,9 +83,8 @@ async def run(user_id: str, context_key: str | None = None) -> ProactiveResult:
         if existing_row:
             first_seen_raw = existing_row.get("first_seen_at", now.isoformat())
             try:
-                first_seen = datetime.fromisoformat(
-                    first_seen_raw.replace("Z", "+00:00")
-                ).replace(tzinfo=timezone.utc)
+                _parsed = datetime.fromisoformat(first_seen_raw.replace("Z", "+00:00"))
+                first_seen = _parsed.replace(tzinfo=timezone.utc) if _parsed.tzinfo is None else _parsed.astimezone(timezone.utc)
             except Exception:
                 first_seen = now
 

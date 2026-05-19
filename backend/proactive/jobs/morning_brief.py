@@ -7,6 +7,7 @@ Promotional emails, newsletters, and automated alerts are filtered out.
 Email lookback window grows if user was away multiple days (capped at 72h).
 """
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from db import get_admin_db
 from proactive.loop import run_headless_loop
@@ -56,13 +57,17 @@ def _last_delivery_hours_ago(user_id: str) -> int:
     return min(72, max(8, int((datetime.now(timezone.utc) - last).total_seconds() / 3600)))
 
 
-async def run(user_id: str, context_key: str | None = None) -> ProactiveResult:
+async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC") -> ProactiveResult:
     from tools import PROACTIVE_TOOL_DEFINITIONS, PROACTIVE_TOOL_REGISTRY  # noqa: PLC0415
 
     since_hours = _last_delivery_hours_ago(user_id)
     system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(since_hours=since_hours)
 
-    today = datetime.now(timezone.utc).strftime("%A, %B %d")
+    try:
+        tz = ZoneInfo(user_tz)
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("UTC")
+    today = datetime.now(tz).strftime("%A, %B %d")
     user_message = f"Today is {today}. Generate the morning brief now."
 
     loop_result = await run_headless_loop(

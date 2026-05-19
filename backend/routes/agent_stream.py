@@ -1,3 +1,4 @@
+import asyncio
 import json
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse
@@ -6,7 +7,8 @@ from rag import retrieve_similar, store_item
 from agent import run_agentic_loop
 from tts import synthesize
 from auth import get_current_user
-from time_utils import parse_due_at
+from db import get_admin_db
+from time_utils import parse_due_at, _is_valid_iana
 import context
 
 router = APIRouter()
@@ -48,68 +50,88 @@ async def capture_stream(
     if not transcript:
         raise HTTPException(status_code=422, detail="Empty transcript")
 
-    context.current_user_id.set(user["sub"])
+    safe_tz = timezone if (timezone and _is_valid_iana(timezone)) else "UTC"
 
-    similar = retrieve_similar(transcript)
-    rag_context = _fmt_context(similar)
+    # Scope user_id for retrieve_similar, then reset — generator handles its own scope
+    _uid_tok = context.current_user_id.set(user["sub"])
+    try:
+        # Persist validated TZ to DB so cron/proactive jobs have real per-user TZ
+        await asyncio.to_thread(
+            lambda: get_admin_db().table("users")
+                .update({"timezone": safe_tz})
+                .eq("id", user["sub"])
+                .execute()
+        )
+
+        similar = retrieve_similar(transcript)
+        rag_context = _fmt_context(similar)
+    finally:
+        context.current_user_id.reset(_uid_tok)
 
     async def event_stream():
-        yield _sse({"type": "transcript", "text": transcript})
-
-        spoken = ""
-        metadata: dict = {"intent_type": "note", "should_store": False, "due_hint": None, "reminder_text": None, "content": None, "awaiting_clarification": False}
-
+        uid_tok = context.current_user_id.set(user["sub"])
+        tz_tok = context.current_user_tz.set(safe_tz)
         try:
-            async for event in run_agentic_loop(session_id, transcript, rag_context):
-                if event["type"] == "ack":
-                    try:
-                        ack_audio = await synthesize(event["text"])
-                        yield _sse({"type": "ack_audio", "audio_base64": ack_audio, "text": event["text"]})
-                    except Exception as e:
-                        print(f"[TTS] ack synthesis failed: {e}")
-                        yield _sse({"type": "error", "message": f"TTS (ack) failed: {e}"})
-                elif event["type"] == "spoken":
-                    spoken = event["text"]
-                    yield _sse({"type": "spoken", "text": spoken})
-                elif event["type"] == "metadata":
-                    metadata = {k: v for k, v in event.items() if k != "type"}
-                    yield _sse(event)
-                else:
-                    yield _sse(event)
-        except Exception as exc:
-            print(f"[agent_stream] agentic loop failed: {exc}", flush=True)
-            yield _sse({"type": "error", "message": f"Agent error: {exc}"})
-            yield _sse({"type": "done"})
-            return
+            yield _sse({"type": "transcript", "text": transcript})
 
-        # Store item if requested (hard gate: never store on clarifying question turns)
-        due_at = parse_due_at(metadata.get("due_hint"), timezone)
-        item_id = None
-        if metadata.get("should_store") and not metadata.get("awaiting_clarification") and spoken:
-            item_id = store_item(
-                content=metadata.get("content") or transcript,
-                intent_type=metadata.get("intent_type", "note"),
-                due_hint=metadata.get("due_hint"),
-                due_at=due_at,
-                reminder_text=metadata.get("reminder_text"),
-            )
+            spoken = ""
+            metadata: dict = {"intent_type": "note", "should_store": False, "due_hint": None, "reminder_text": None, "content": None, "awaiting_clarification": False}
 
-        yield _sse({
-            "type": "stored",
-            "item_id": item_id,
-            "due_at": due_at,
-        })
-
-        # Synthesize TTS last
-        if spoken:
             try:
-                audio_b64 = await synthesize(spoken)
-                yield _sse({"type": "audio", "audio_base64": audio_b64})
-            except Exception as e:
-                print(f"[TTS] final synthesis failed: {e}")
-                yield _sse({"type": "error", "message": f"TTS failed: {e}"})
+                async for event in run_agentic_loop(session_id, transcript, rag_context, user_tz=safe_tz):
+                    if event["type"] == "ack":
+                        try:
+                            ack_audio = await synthesize(event["text"])
+                            yield _sse({"type": "ack_audio", "audio_base64": ack_audio, "text": event["text"]})
+                        except Exception as e:
+                            print(f"[TTS] ack synthesis failed: {e}")
+                            yield _sse({"type": "error", "message": f"TTS (ack) failed: {e}"})
+                    elif event["type"] == "spoken":
+                        spoken = event["text"]
+                        yield _sse({"type": "spoken", "text": spoken})
+                    elif event["type"] == "metadata":
+                        metadata = {k: v for k, v in event.items() if k != "type"}
+                        yield _sse(event)
+                    else:
+                        yield _sse(event)
+            except Exception as exc:
+                print(f"[agent_stream] agentic loop failed: {exc}", flush=True)
+                yield _sse({"type": "error", "message": f"Agent error: {exc}"})
+                yield _sse({"type": "done"})
+                return
 
-        yield _sse({"type": "done"})
+            # Store item if requested (hard gate: never store on clarifying question turns)
+            due_at = parse_due_at(metadata.get("due_hint"), safe_tz)
+            item_id = None
+            if metadata.get("should_store") and not metadata.get("awaiting_clarification") and spoken:
+                item_id = store_item(
+                    content=metadata.get("content") or transcript,
+                    intent_type=metadata.get("intent_type", "note"),
+                    due_hint=metadata.get("due_hint"),
+                    due_at=due_at,
+                    reminder_text=metadata.get("reminder_text"),
+                )
+
+            yield _sse({
+                "type": "stored",
+                "item_id": item_id,
+                "due_at": due_at,
+            })
+
+            # Synthesize TTS last
+            if spoken:
+                try:
+                    audio_b64 = await synthesize(spoken)
+                    yield _sse({"type": "audio", "audio_base64": audio_b64})
+                except Exception as e:
+                    print(f"[TTS] final synthesis failed: {e}")
+                    yield _sse({"type": "error", "message": f"TTS failed: {e}"})
+
+            yield _sse({"type": "done"})
+
+        finally:
+            context.current_user_id.reset(uid_tok)
+            context.current_user_tz.reset(tz_tok)
 
     return StreamingResponse(
         event_stream(),

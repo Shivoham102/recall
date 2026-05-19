@@ -10,13 +10,14 @@ as a task card regardless, but annotates text with the relevance assessment.
 import asyncio
 import os
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from anthropic import AsyncAnthropic
 from db import get_admin_db
 from proactive.runner import ProactiveResult
 
 
-async def run(user_id: str, context_key: str | None = None) -> ProactiveResult:
+async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC") -> ProactiveResult:
     if not context_key:
         raise ValueError("smart_reminder requires context_key (item_id)")
 
@@ -41,8 +42,11 @@ async def run(user_id: str, context_key: str | None = None) -> ProactiveResult:
     due_hint: str | None = item.get("due_hint")
     intent_type: str = item.get("intent_type") or "reminder"
 
-    # Quick Claude (Haiku) relevance check — keep it cheap
-    now_str = datetime.now(timezone.utc).strftime("%A, %B %d %Y %H:%M UTC")
+    try:
+        tz = ZoneInfo(user_tz)
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("UTC")
+    now_str = datetime.now(tz).strftime("%A, %B %d %Y %H:%M")
     prompt = (
         f"Today is {now_str}.\n"
         f"Reminder: '{content}'"

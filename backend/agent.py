@@ -4,6 +4,7 @@ import asyncio
 import re
 from datetime import datetime
 from typing import AsyncGenerator
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from anthropic import AsyncAnthropic
 from anthropic.types import TextBlock, ToolUseBlock
 from dotenv import load_dotenv
@@ -75,8 +76,12 @@ def _extract_draft_preferences(user_text: str) -> dict:
     return preferences
 
 
-def _augment_user_turn(user_text: str, rag_context: str, draft_preferences: dict | None = None) -> str:
-    now = datetime.now().strftime("%A, %B %d %Y %H:%M")
+def _augment_user_turn(user_text: str, rag_context: str, draft_preferences: dict | None = None, user_tz: str = "UTC") -> str:
+    try:
+        tz = ZoneInfo(user_tz)
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("UTC")
+    now = datetime.now(tz).strftime("%A, %B %d %Y %H:%M")
     draft_pref_line = ""
     if draft_preferences:
         draft_pref_line = f"[Draft preferences: {json.dumps(draft_preferences)}]\n"
@@ -94,6 +99,7 @@ async def run_agentic_loop(
     session_id: str,
     user_text: str,
     rag_context: str,
+    user_tz: str = "UTC",
 ) -> AsyncGenerator[dict, None]:
     """
     Async generator that yields SSE event dicts.
@@ -116,7 +122,7 @@ async def run_agentic_loop(
     context.current_style_ready.set(False)
     context.current_style_profile.set({})
 
-    augmented_user = _augment_user_turn(user_text, rag_context, session_prefs)
+    augmented_user = _augment_user_turn(user_text, rag_context, session_prefs, user_tz=user_tz)
     history.append({"role": "user", "content": augmented_user})
 
     if len(history) > MAX_TURNS * 2:

@@ -181,7 +181,10 @@ class TriggerBody(BaseModel):
 
 @router.post("/agent/proactive/trigger")
 async def proactive_trigger(body: TriggerBody, user: dict = Depends(get_current_user)):
-    result = await run_job(user["sub"], body.job_type, body.context_key)
+    db = get_admin_db()
+    tz_res = db.table("users").select("timezone").eq("id", user["sub"]).maybe_single().execute()
+    user_tz = (tz_res.data or {}).get("timezone") or "UTC"
+    result = await run_job(user["sub"], body.job_type, body.context_key, user_tz=user_tz)
     if result is None:
         raise HTTPException(status_code=409, detail="Job skipped (dedupe, locked, or terminal failure)")
     return {

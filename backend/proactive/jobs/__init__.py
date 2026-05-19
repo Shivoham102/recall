@@ -2,7 +2,7 @@ from typing import Callable, Awaitable
 from proactive.runner import ProactiveResult
 
 
-def get_job_fn(job_type: str) -> Callable[[str], Awaitable[ProactiveResult]]:
+def get_job_fn(job_type: str) -> Callable[..., Awaitable[ProactiveResult]]:
     if job_type == "morning_brief":
         from proactive.jobs.morning_brief import run
         return run

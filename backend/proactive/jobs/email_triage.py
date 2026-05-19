@@ -10,7 +10,7 @@ from tools.google_services import gmail_get_updates
 from proactive.runner import ProactiveResult
 
 
-async def run(user_id: str, context_key: str | None = None) -> ProactiveResult:
+async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC") -> ProactiveResult:
     await gmail_get_updates({"since_hours": 2})
     emails = list(gsvcs._last_email_fetch)
 

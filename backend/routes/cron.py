@@ -53,7 +53,7 @@ async def _run_job_for_all_users(job_type: str, context_key: str | None = None) 
     db = get_admin_db()
     res = (
         db.table("users")
-        .select("id, last_checkin_at, created_at")
+        .select("id, last_checkin_at, created_at, timezone")
         .not_.is_("google_access_token", "null")
         .execute()
     )
@@ -61,7 +61,7 @@ async def _run_job_for_all_users(job_type: str, context_key: str | None = None) 
     users = [r for r in all_users if _is_active(r)]
     ran, skipped, failed = 0, 0, 0
     for row in users:
-        result = await run_job(row["id"], job_type, context_key)
+        result = await run_job(row["id"], job_type, context_key, user_tz=row.get("timezone") or "UTC")
         if result is None:
             skipped += 1
         else:
@@ -140,9 +140,18 @@ async def smart_reminder_job(
         .execute()
     )
     items = res.data or []
+
+    tz_map: dict[str, str] = {}
+    if items:
+        user_ids = list({item["user_id"] for item in items})
+        tz_res = db.table("users").select("id, timezone").in_("id", user_ids).execute()
+        tz_map = {r["id"]: r.get("timezone") or "UTC" for r in (tz_res.data or [])}
+
     ran, skipped = 0, 0
     for item in items:
-        result = await run_job(item["user_id"], "smart_reminder", context_key=item["id"])
+        result = await run_job(item["user_id"], "smart_reminder",
+                               context_key=item["id"],
+                               user_tz=tz_map.get(item["user_id"], "UTC"))
         if result is None:
             skipped += 1
         else:

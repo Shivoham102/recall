@@ -110,7 +110,7 @@ def _search_commitments() -> list[dict]:
     return [t for t in threads if not _thread_is_concluded(svc, t["thread_id"])]
 
 
-async def run(user_id: str, context_key: str | None = None) -> ProactiveResult:
+async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC") -> ProactiveResult:
     db = get_admin_db()
     now = datetime.now(timezone.utc)
 

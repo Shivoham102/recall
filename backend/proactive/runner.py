@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import context
 from db import get_admin_db
@@ -49,6 +50,7 @@ async def run_job(
     user_id: str,
     job_type: str,
     context_key: str | None = None,
+    user_tz: str = "UTC",
 ) -> ProactiveResult | None:
     """
     Run a proactive job for the given user. Returns ProactiveResult on success, None if skipped.
@@ -87,7 +89,13 @@ async def run_job(
             window = _DEDUPE_WINDOWS.get(job_type)
             if window is not None:
                 if job_type in _CALENDAR_DAY_JOBS:
-                    window_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+                    try:
+                        _tz_obj = ZoneInfo(user_tz)
+                    except ZoneInfoNotFoundError:
+                        _tz_obj = ZoneInfo("UTC")
+                    _local_now = now.astimezone(_tz_obj)
+                    _local_midnight = _local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+                    window_start = _local_midnight.astimezone(timezone.utc).isoformat()
                 else:
                     window_start = (now - window).isoformat()
                 res = (
@@ -131,8 +139,9 @@ async def run_job(
             )
             job_id = insert_res.data[0]["id"]
 
-        # ── 3. Set ContextVar so tools can find the user ──────────────────────
+        # ── 3. Set ContextVars so tools can find the user ─────────────────────
         ctx_tok = context.current_user_id.set(user_id)
+        tz_tok = context.current_user_tz.set(user_tz)
         context.current_style_ready.set(False)
         context.current_style_profile.set({})
         context.current_draft_preferences.set({})
@@ -141,7 +150,7 @@ async def run_job(
             # ── 4. Dispatch to the job implementation ─────────────────────────
             from proactive.jobs import get_job_fn  # lazy to avoid circular import
             job_fn = get_job_fn(job_type)
-            result: ProactiveResult = await job_fn(user_id, context_key=context_key)
+            result: ProactiveResult = await job_fn(user_id, context_key=context_key, user_tz=user_tz)
 
             db.table("proactive_jobs").update({
                 "status": "done",
@@ -173,3 +182,4 @@ async def run_job(
 
         finally:
             context.current_user_id.reset(ctx_tok)
+            context.current_user_tz.reset(tz_tok)

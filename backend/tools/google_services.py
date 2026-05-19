@@ -9,6 +9,7 @@ from email.mime.text import MIMEText
 import pathlib
 import re
 import sys
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from googleapiclient.discovery import build
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
@@ -306,7 +307,7 @@ def _load_last_checkin() -> datetime | None:
         val = row.data.get("last_checkin_at") if row.data else None
         if not val:
             return None
-        return datetime.fromisoformat(val).replace(tzinfo=timezone.utc)
+        return _to_utc(datetime.fromisoformat(val.replace("Z", "+00:00")))
     except Exception:
         return None
 
@@ -1082,10 +1083,16 @@ async def calendar_create(inp: dict) -> dict:
     description = inp.get("description", "")
     attendees = inp.get("attendees", [])
 
+    _raw_tz = context.current_user_tz.get("UTC")
+    try:
+        ZoneInfo(_raw_tz)
+        _event_tz = _raw_tz
+    except ZoneInfoNotFoundError:
+        _event_tz = "UTC"
     event_body: dict = {
         "summary": title,
-        "start": {"dateTime": start_time, "timeZone": "America/Los_Angeles"},
-        "end": {"dateTime": end_time, "timeZone": "America/Los_Angeles"},
+        "start": {"dateTime": start_time, "timeZone": _event_tz},
+        "end": {"dateTime": end_time, "timeZone": _event_tz},
     }
     if description:
         event_body["description"] = description
