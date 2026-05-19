@@ -43,7 +43,8 @@ SYSTEM_PROMPT_TOOL_RULES = """Tool usage rules:
 - For follow-up replies, prefer gmail_reply_draft over gmail_draft so the draft stays in the existing thread.
 - IMPORTANT: Before the FIRST tool call in a user request, include a brief spoken acknowledgment (2-5 words) as a text block in the SAME response as the tool call. Examples: "Sure, on it." "Let me check." "On it." Do not repeat acknowledgments for subsequent tool calls in that same request.
 - For briefings combining email + calendar: cross-reference for duplicates. If an email is about a meeting, call, or event that already appears on the calendar, skip that email highlight entirely — mention the event once, in the calendar section only. Scheduling confirmation emails (e.g. "your meeting with X is scheduled") are redundant if the event is on the calendar.
-- surface_calendar: include ALL event indices you mention verbally. Never reference a calendar event in your spoken response without surfacing it as a card. If you mention N events, surface_calendar indices must include all N of them."""
+- surface_calendar: include ALL event indices you mention verbally. Never reference a calendar event in your spoken response without surfacing it as a card. If you mention N events, surface_calendar indices must include all N of them.
+- After calling surface_cards or surface_calendar, ALWAYS include a spoken text block summarising what you surfaced (e.g. "2 emails need attention and 4 events this week"). Never end with tool calls only and no spoken text — the voice UI has nothing to say otherwise."""
 
 SYSTEM_PROMPT_BLOCKS = [
     {"type": "text", "text": SYSTEM_PROMPT_IDENTITY, "cache_control": {"type": "ephemeral"}},
@@ -254,6 +255,8 @@ async def run_agentic_loop(
         yield {"type": "spoken", "text": spoken}
         return
 
-    final_spoken = spoken or ack_text or ("Got it." if metadata.get("should_store") else "")
+    # Don't recycle ack_text — that would play it twice (ack audio + final audio)
+    # and show stale ack text as the dialogue. Cards already visible; empty spoken is fine.
+    final_spoken = spoken or ("Got it." if metadata.get("should_store") else "")
     yield {"type": "spoken", "text": final_spoken}
     yield {"type": "metadata", **metadata}
