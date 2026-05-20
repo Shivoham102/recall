@@ -40,7 +40,7 @@ Write-Host "Updated $cargoPath"
 
 # Commit, tag, push
 Set-Location $root
-git add app/src-tauri/tauri.conf.json app/package.json app/src-tauri/Cargo.toml
+git add app/src-tauri/tauri.conf.json app/package.json app/src-tauri/Cargo.toml app/src-tauri/Cargo.lock
 git commit -m "chore: bump version to $Version"
 git tag "v$Version"
 git push origin master
