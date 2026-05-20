@@ -47,4 +47,4 @@ git push origin master
 git push origin "v$Version"
 
 Write-Host ""
-Write-Host "Released v$Version — GitHub Actions building installers now."
+Write-Host "Released v$Version - GitHub Actions building installers now."
