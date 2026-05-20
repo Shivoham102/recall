@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getItems, updateItem, RecallItem } from "../../services/api";
+import { TabLoading } from "../TabLoading";
 
 export function RemindersTab() {
   const [items, setItems] = useState<RecallItem[]>([]);
@@ -32,7 +33,7 @@ export function RemindersTab() {
     setMissed((prev) => prev.filter((i) => i.id !== id));
   };
 
-  if (loading) return <div className="tab-loading">Loading…</div>;
+  if (loading) return <TabLoading />;
 
   return (
     <div className="reminders-tab">

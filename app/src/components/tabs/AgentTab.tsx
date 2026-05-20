@@ -3,6 +3,7 @@ import { listen, emit } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { captureStream, playAudio } from "../../services/api";
 import { useRecorder } from "../../hooks/useRecorder";
+import { TabLoading } from "../TabLoading";
 import { useAgentChats } from "../../context/AgentChatsContext";
 import { AgentStep, CalendarCard, EmailCard, TaskCard } from "../../types/agentTurn";
 import { scheduleReminder } from "../../services/reminderScheduler";
@@ -436,7 +437,7 @@ export function AgentTab() {
     return [...inbox, ...rest];
   }, [chats]);
 
-  if (loading) return <div className="tab-loading">Loading chats...</div>;
+  if (loading) return <TabLoading />;
 
   return (
     <div

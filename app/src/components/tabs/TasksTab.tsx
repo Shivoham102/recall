@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getItems, updateItem, RecallItem } from "../../services/api";
+import { TabLoading } from "../TabLoading";
 
 const TYPE_ORDER = ["blocker", "task", "follow_up", "progress", "note"];
 const TYPE_COLOR: Record<string, string> = {
@@ -31,7 +32,7 @@ export function TasksTab() {
     setItems((prev) => prev.filter((i) => i.id !== id));
   };
 
-  if (loading) return <div className="tab-loading">Loading…</div>;
+  if (loading) return <TabLoading />;
 
   return (
     <div className="tasks-tab">

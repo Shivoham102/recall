@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getItems, RecallItem } from "../../services/api";
+import { TabLoading } from "../TabLoading";
 
 const TYPE_COLOR: Record<string, string> = {
   task:      "#00e5ff",
@@ -74,7 +75,7 @@ export function TranscriptsTab() {
 
   const groups = groupByDay(filtered);
 
-  if (loading) return <div className="tab-loading">Loading…</div>;
+  if (loading) return <TabLoading />;
 
   return (
     <div className="transcripts-tab">
