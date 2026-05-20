@@ -24,12 +24,24 @@ from routes.agent_stream import router as agent_stream_router
 from routes.chat_title import router as chat_title_router
 from routes.cron import router as cron_router
 from routes.proactive import router as proactive_router
+from routes.google_tokens import router as google_tokens_router
 
 app = FastAPI(title="Recall Backend")
 
+
+def _cors_origins() -> list[str]:
+    raw = os.environ.get("BACKEND_CORS_ORIGINS", "").strip()
+    if raw:
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    env = (os.environ.get("ENVIRONMENT") or os.environ.get("VERCEL_ENV") or "").lower()
+    if env in {"production", "prod"}:
+        raise RuntimeError("BACKEND_CORS_ORIGINS must be set in production")
+    return ["*"]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -41,6 +53,7 @@ app.include_router(reminders_router)
 app.include_router(voice_router)
 app.include_router(cron_router)
 app.include_router(proactive_router)
+app.include_router(google_tokens_router)
 
 
 @app.get("/health")

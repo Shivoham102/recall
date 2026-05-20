@@ -109,7 +109,8 @@ export default function DownloadButtons() {
       </a>
     </div>
     <p className="dl-oauth-note">
-      App is not yet Google-verified. If you want access, reach out to{' '}
+      Google OAuth verification is deferred while Recall is in private testing. For access, reach
+      out to{' '}
       <a
         href="https://www.linkedin.com/in/shivohamangal/"
         target="_blank"

@@ -1,5 +1,6 @@
 import { getAuthHeader } from "../hooks/useAuth";
 import { getBase } from "./backend";
+import { supabase } from "./supabase";
 
 export type StreamEvent =
   | { type: "transcript"; text: string }
@@ -14,11 +15,30 @@ export type StreamEvent =
   | { type: "error"; message: string; }
   | { type: "done" };
 
+export async function authenticatedFetch(
+  input: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const withAuth = async () => ({
+    ...init,
+    headers: {
+      ...(init.headers ?? {}),
+      ...(await getAuthHeader()),
+    },
+  });
+
+  let res = await fetch(input, await withAuth());
+  if (res.status !== 401) return res;
+
+  await supabase.auth.refreshSession();
+  res = await fetch(input, await withAuth());
+  return res;
+}
+
 async function* _streamEvents(form: FormData): AsyncGenerator<StreamEvent> {
-  const res = await fetch(`${await getBase()}/capture/stream`, {
+  const res = await authenticatedFetch(`${await getBase()}/capture/stream`, {
     method: "POST",
     body: form,
-    headers: await getAuthHeader(),
   });
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => String(res.status));
@@ -92,9 +112,9 @@ export interface PendingReminder {
 export async function suggestAgentChatTitle(firstUserMessage: string): Promise<string | null> {
   const text = firstUserMessage.trim();
   if (!text) return null;
-  const res = await fetch(`${await getBase()}/capture/suggest-title`, {
+  const res = await authenticatedFetch(`${await getBase()}/capture/suggest-title`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
   if (!res.ok) return null;
@@ -104,9 +124,9 @@ export async function suggestAgentChatTitle(firstUserMessage: string): Promise<s
 }
 
 export async function queryText(text: string, sessionId: string) {
-  const res = await fetch(`${await getBase()}/query`, {
+  const res = await authenticatedFetch(`${await getBase()}/query`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, session_id: sessionId }),
   });
   if (!res.ok) throw new Error(`query failed: ${res.status}`);
@@ -122,7 +142,7 @@ export async function getItems(params?: {
   if (params?.status) url.searchParams.set("status", params.status);
   if (params?.has_due_hint) url.searchParams.set("has_due_hint", "true");
   if (params?.limit) url.searchParams.set("limit", String(params.limit));
-  const res = await fetch(url.toString(), { headers: await getAuthHeader() });
+  const res = await authenticatedFetch(url.toString());
   if (!res.ok) throw new Error(`getItems failed: ${res.status}`);
   return res.json();
 }
@@ -131,9 +151,9 @@ export async function updateItem(
   id: string,
   update: { status?: string; due_hint?: string },
 ): Promise<RecallItem> {
-  const res = await fetch(`${await getBase()}/items/${id}`, {
+  const res = await authenticatedFetch(`${await getBase()}/items/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(update),
   });
   if (!res.ok) throw new Error(`updateItem failed: ${res.status}`);
@@ -172,31 +192,31 @@ export interface DueReminder {
 }
 
 export async function getPendingReminders(): Promise<PendingReminder[]> {
-  const res = await fetch(`${await getBase()}/reminders/pending`, { headers: await getAuthHeader() });
+  const res = await authenticatedFetch(`${await getBase()}/reminders/pending`);
   if (!res.ok) throw new Error(`reminders/pending failed: ${res.status}`);
   return res.json();
 }
 
 export async function checkDueReminders(): Promise<DueReminder[]> {
-  const res = await fetch(`${await getBase()}/reminders/due`, { headers: await getAuthHeader() });
+  const res = await authenticatedFetch(`${await getBase()}/reminders/due`);
   if (!res.ok) throw new Error(`reminders/due failed: ${res.status}`);
   return res.json();
 }
 
 export async function dismissReminders(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
-  const res = await fetch(`${await getBase()}/reminders/dismiss`, {
+  const res = await authenticatedFetch(`${await getBase()}/reminders/dismiss`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids }),
   });
   if (!res.ok) throw new Error(`reminders/dismiss failed: ${res.status}`);
 }
 
 export async function markRemindersAsMissed(): Promise<{ id: string; content: string }[]> {
-  const res = await fetch(`${await getBase()}/reminders/mark-missed`, {
+  const res = await authenticatedFetch(`${await getBase()}/reminders/mark-missed`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+    headers: { "Content-Type": "application/json" },
   });
   if (!res.ok) throw new Error(`reminders/mark-missed failed: ${res.status}`);
   const data: { items: { id: string; content: string }[] } = await res.json();
@@ -257,7 +277,7 @@ export function connectProactiveStream(
       try {
         const base = await getBase();
         const headers = await getAuthHeader();
-        const res = await fetch(`${base}/agent/proactive/stream`, {
+        const res = await authenticatedFetch(`${base}/agent/proactive/stream`, {
           headers,
           signal: controller.signal,
         });
@@ -308,9 +328,9 @@ export function connectProactiveStream(
 
 export async function ackProactiveJob(id: string): Promise<void> {
   try {
-    const res = await fetch(`${await getBase()}/agent/proactive/ack`, {
+    const res = await authenticatedFetch(`${await getBase()}/agent/proactive/ack`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
     if (!res.ok) throw new Error(String(res.status));
@@ -329,7 +349,7 @@ export interface BehaviorPattern {
 }
 
 export async function getPatterns(): Promise<BehaviorPattern[]> {
-  const res = await fetch(`${await getBase()}/debug/patterns`, { headers: await getAuthHeader() });
+  const res = await authenticatedFetch(`${await getBase()}/debug/patterns`);
   if (!res.ok) throw new Error(`getPatterns failed: ${res.status}`);
   const data = (await res.json()) as { patterns: BehaviorPattern[] };
   return data.patterns ?? [];
@@ -342,5 +362,21 @@ export function getOrCreateSessionId(): string {
     localStorage.setItem("recall_session_id", id);
   }
   return id;
+}
+
+export async function storeGoogleTokens(input: {
+  provider_token: string | null;
+  provider_refresh_token: string;
+  google_token_expiry: string | null;
+}): Promise<void> {
+  const res = await authenticatedFetch(`${await getBase()}/auth/google/tokens`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => String(res.status));
+    throw new Error(`Google token sync failed: ${detail}`);
+  }
 }
 

@@ -16,6 +16,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 from google_auth import get_credentials, get_credentials_for_user
 import context
 from db import get_admin_db
+from security.crypto import decrypt_from_storage, encrypt_for_storage
 
 _STYLE_PROFILE_TABLE = "email_style_profiles"
 _STYLE_EVENT_TABLE = "email_style_events"
@@ -197,26 +198,32 @@ def _load_style_profile_from_db(user_id: str) -> dict | None:
             .maybe_single()
             .execute()
         )
-        return res.data if res and res.data else None
+        if not res or not res.data:
+            return None
+        row = res.data
+        row["samples_preview"] = decrypt_from_storage(row.get("samples_preview")) or ""
+        return row
     except Exception:
         return None
 
 
 def _save_style_profile(user_id: str, samples: list[str], style_features: dict) -> dict:
     now = datetime.now(timezone.utc)
-    payload = {
+    samples_preview = "\n\n---\n\n".join(samples[:_STYLE_SAMPLE_TARGET])
+    db_payload = {
         "user_id": user_id,
         "sample_count": len(samples),
-        "samples_preview": "\n\n---\n\n".join(samples[:_STYLE_SAMPLE_TARGET]),
+        "samples_preview": encrypt_for_storage(samples_preview),
         "style_features": style_features,
         "last_refreshed_at": now.isoformat(),
         "next_refresh_at": (now + timedelta(days=7)).isoformat(),
         "updated_at": now.isoformat(),
     }
     try:
-        get_admin_db().table(_STYLE_PROFILE_TABLE).upsert(payload, on_conflict="user_id").execute()
+        get_admin_db().table(_STYLE_PROFILE_TABLE).upsert(db_payload, on_conflict="user_id").execute()
     except Exception:
         pass
+    payload = {**db_payload, "samples_preview": samples_preview}
     return payload
 
 

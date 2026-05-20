@@ -11,9 +11,10 @@ _admin_client: Client | None = None
 def get_db() -> Client:
     global _client
     if _client is None:
+        key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ["SUPABASE_ANON_KEY"]
         _client = create_client(
             os.environ["SUPABASE_URL"],
-            os.environ["SUPABASE_ANON_KEY"],
+            key,
         )
     return _client
 

@@ -3,14 +3,31 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { supabase } from "../services/supabase";
+import { storeGoogleTokens } from "../services/api";
 
 const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/gmail.compose",
-  "https://www.googleapis.com/auth/calendar",
   "https://www.googleapis.com/auth/calendar.events",
 ].join(" ");
+
+async function retryGoogleTokenSync(input: {
+  provider_token: string | null;
+  provider_refresh_token: string;
+  google_token_expiry: string | null;
+}) {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await storeGoogleTokens(input);
+      return;
+    } catch (err) {
+      lastError = err;
+      await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
 
 interface Props {
   onLogin: () => void;
@@ -66,17 +83,28 @@ export function LoginScreen({ onLogin }: Props) {
           return;
         }
 
-        // Persist Google refresh token so voice agent tools can call Gmail/Calendar
-        if (providerRefreshToken && data.session.user) {
-          await supabase.from("users").upsert({
-            id: data.session.user.id,
-            email: data.session.user.email,
-            google_refresh_token: providerRefreshToken,
-            google_access_token: providerToken ?? null,
+        if (!providerRefreshToken) {
+          await supabase.auth.signOut();
+          setStatus("error");
+          setErrorMsg("Google did not return offline access. Try signing in again.");
+          return;
+        }
+
+        // provider_refresh_token is only available in this callback. If syncing it
+        // fails, force re-auth instead of showing a falsely connected account.
+        try {
+          await retryGoogleTokenSync({
+            provider_refresh_token: providerRefreshToken,
+            provider_token: providerToken,
             google_token_expiry: providerToken
               ? new Date(Date.now() + 3600 * 1000).toISOString()
               : null,
-          }, { onConflict: "id" });
+          });
+        } catch (err) {
+          await supabase.auth.signOut();
+          setStatus("error");
+          setErrorMsg(`Google connection failed. Please sign in again. ${String(err)}`);
+          return;
         }
 
         appWindow.show();

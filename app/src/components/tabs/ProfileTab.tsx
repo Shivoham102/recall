@@ -19,6 +19,7 @@ function PatternBar({ frequency }: { frequency: number }) {
 export function ProfileTab({ user, onLogout }: Props) {
   const [itemCount, setItemCount] = useState<number | null>(null);
   const [patterns, setPatterns] = useState<BehaviorPattern[] | null>(null);
+  const [reconnectMsg, setReconnectMsg] = useState("");
 
   useEffect(() => {
     getItems({ status: "open", limit: 500 })
@@ -66,6 +67,20 @@ export function ProfileTab({ user, onLogout }: Props) {
           </div>
           <div className="profile-connection__badge">Active</div>
         </div>
+        <button
+          className="profile-signout"
+          onClick={() => {
+            setReconnectMsg("Sign in again to refresh Google permissions.");
+            onLogout();
+          }}
+        >
+          Reconnect Google
+        </button>
+        {reconnectMsg && (
+          <div className="profile-stat-row">
+            <span className="profile-stat__key profile-stat__key--muted">{reconnectMsg}</span>
+          </div>
+        )}
       </div>
 
       {/* What I've learned */}

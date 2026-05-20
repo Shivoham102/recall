@@ -20,7 +20,7 @@ const FEATURES = [
   {
     icon: '💌',
     title: 'Email Intelligence',
-    desc: 'Surfaces real person-to-person emails. Silences newsletters and promotions automatically.',
+    desc: 'Surfaces real person-to-person emails and saves personalized drafts when you ask.',
   },
   {
     icon: '📡',

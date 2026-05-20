@@ -56,7 +56,10 @@ export default function Home() {
               <div className="step-num" aria-hidden="true">2</div>
               <div>
                 <h3>Sign in with Google</h3>
-                <p>Grant access to Gmail and Calendar. Recall reads; it never sends on your behalf.</p>
+                <p>
+                  Grant access to Gmail and Calendar. Recall reads context, saves drafts, and
+                  creates events only when you ask.
+                </p>
               </div>
             </div>
             <div className="step">

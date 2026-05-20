@@ -13,7 +13,7 @@ export default function Terms() {
       <main className="legal-wrap">
         <p className="legal-label">Legal</p>
         <h1>Terms of Service</h1>
-        <p className="legal-date">Effective date: May 2025</p>
+        <p className="legal-date">Effective date: May 2026</p>
 
         <p>
           By downloading, installing, or using Recall, you agree to these Terms of Service. Please
@@ -36,9 +36,9 @@ export default function Terms() {
         <h2>3. Your Google account</h2>
         <p>
           Recall requires access to your Google account (Gmail and Calendar). You are responsible
-          for maintaining the security of your Google account. Recall will only read data from your
-          account; it will not send emails or modify calendar events on your behalf without your
-          explicit action.
+          for maintaining the security of your Google account. Recall can read Gmail and Calendar
+          data, save Gmail drafts, and create Google Calendar events on your behalf when you ask it
+          to do so. Recall does not expose a send-email action in the app.
         </p>
         <p>
           You can revoke Recall&apos;s access at any time via{' '}

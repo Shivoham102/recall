@@ -209,3 +209,69 @@ CREATE UNIQUE INDEX IF NOT EXISTS agent_chats_proactive_inbox_per_user
 -- Delete old dev rows that have no user_id:
 --   DELETE FROM recall_items WHERE user_id IS NULL;
 --   DELETE FROM sessions     WHERE user_id IS NULL;
+
+-- ── Row-level security for user-scoped tables ────────────────────────────────
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS users_select_own ON users;
+CREATE POLICY users_select_own ON users
+  FOR SELECT USING ((auth.uid())::text = id);
+DROP POLICY IF EXISTS users_update_own ON users;
+
+ALTER TABLE recall_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS recall_items_select_own ON recall_items;
+CREATE POLICY recall_items_select_own ON recall_items
+  FOR SELECT USING ((auth.uid())::text = user_id);
+DROP POLICY IF EXISTS recall_items_insert_own ON recall_items;
+CREATE POLICY recall_items_insert_own ON recall_items
+  FOR INSERT WITH CHECK ((auth.uid())::text = user_id);
+DROP POLICY IF EXISTS recall_items_update_own ON recall_items;
+CREATE POLICY recall_items_update_own ON recall_items
+  FOR UPDATE USING ((auth.uid())::text = user_id);
+DROP POLICY IF EXISTS recall_items_delete_own ON recall_items;
+CREATE POLICY recall_items_delete_own ON recall_items
+  FOR DELETE USING ((auth.uid())::text = user_id);
+
+ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS sessions_select_own ON sessions;
+CREATE POLICY sessions_select_own ON sessions
+  FOR SELECT USING ((auth.uid())::text = user_id);
+DROP POLICY IF EXISTS sessions_insert_own ON sessions;
+CREATE POLICY sessions_insert_own ON sessions
+  FOR INSERT WITH CHECK ((auth.uid())::text = user_id);
+DROP POLICY IF EXISTS sessions_update_own ON sessions;
+CREATE POLICY sessions_update_own ON sessions
+  FOR UPDATE USING ((auth.uid())::text = user_id);
+DROP POLICY IF EXISTS sessions_delete_own ON sessions;
+CREATE POLICY sessions_delete_own ON sessions
+  FOR DELETE USING ((auth.uid())::text = user_id);
+
+ALTER TABLE email_style_profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS email_style_profiles_select_own ON email_style_profiles;
+CREATE POLICY email_style_profiles_select_own ON email_style_profiles
+  FOR SELECT USING ((auth.uid())::text = user_id);
+DROP POLICY IF EXISTS email_style_profiles_delete_own ON email_style_profiles;
+CREATE POLICY email_style_profiles_delete_own ON email_style_profiles
+  FOR DELETE USING ((auth.uid())::text = user_id);
+
+ALTER TABLE email_style_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS email_style_events_select_own ON email_style_events;
+CREATE POLICY email_style_events_select_own ON email_style_events
+  FOR SELECT USING ((auth.uid())::text = user_id);
+
+ALTER TABLE proactive_jobs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS proactive_jobs_select_own ON proactive_jobs;
+CREATE POLICY proactive_jobs_select_own ON proactive_jobs
+  FOR SELECT USING ((auth.uid())::text = user_id);
+
+ALTER TABLE follow_up_threads ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS follow_up_threads_select_own ON follow_up_threads;
+CREATE POLICY follow_up_threads_select_own ON follow_up_threads
+  FOR SELECT USING ((auth.uid())::text = user_id);
+DROP POLICY IF EXISTS follow_up_threads_update_own ON follow_up_threads;
+CREATE POLICY follow_up_threads_update_own ON follow_up_threads
+  FOR UPDATE USING ((auth.uid())::text = user_id);
+
+ALTER TABLE user_behavior_patterns ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_behavior_patterns_select_own ON user_behavior_patterns;
+CREATE POLICY user_behavior_patterns_select_own ON user_behavior_patterns
+  FOR SELECT USING ((auth.uid())::text = user_id);

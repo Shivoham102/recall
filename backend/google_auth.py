@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
+from security.crypto import decrypt_from_storage, encrypt_for_storage
 
 SCOPES = [
     "openid",
@@ -12,7 +13,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/gmail.compose",
     "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/calendar.events",
 ]
 
 _CREDENTIALS_FILE = pathlib.Path(__file__).parent / "credentials.json"
@@ -25,18 +26,27 @@ def _load_client_secrets() -> tuple[str, str]:
     client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
     if client_id and client_secret:
         return client_id, client_secret
+    if not _legacy_file_oauth_enabled():
+        raise RuntimeError(
+            "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required. "
+            "Set ALLOW_LEGACY_GOOGLE_FILE_OAUTH=true to read credentials.json in local development."
+        )
     with open(_CREDENTIALS_FILE) as f:
         data = json.load(f)
     inner = data.get("installed") or data.get("web")
     return inner["client_id"], inner["client_secret"]
 
 
+def _legacy_file_oauth_enabled() -> bool:
+    return os.environ.get("ALLOW_LEGACY_GOOGLE_FILE_OAUTH", "").lower() in {"1", "true", "yes"}
+
+
 def get_credentials_for_user(user_id: str) -> Credentials:
     """Read Google credentials from Supabase users table and refresh if needed."""
-    from db import get_db
+    from db import get_admin_db
 
     res = (
-        get_db()
+        get_admin_db()
         .table("users")
         .select("google_access_token, google_refresh_token, google_token_expiry")
         .eq("id", user_id)
@@ -47,6 +57,11 @@ def get_credentials_for_user(user_id: str) -> Credentials:
         raise ValueError(f"No Google credentials found for user {user_id!r}")
 
     data = res.data
+    access_token = decrypt_from_storage(data.get("google_access_token"))
+    refresh_token = decrypt_from_storage(data.get("google_refresh_token"))
+    if not refresh_token:
+        raise ValueError(f"Google reconnect required for user {user_id!r}")
+
     expiry = None
     if data.get("google_token_expiry"):
         expiry = datetime.fromisoformat(
@@ -56,8 +71,8 @@ def get_credentials_for_user(user_id: str) -> Credentials:
     client_id, client_secret = _load_client_secrets()
 
     creds = Credentials(
-        token=data["google_access_token"],
-        refresh_token=data.get("google_refresh_token"),
+        token=access_token,
+        refresh_token=refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=client_id,
         client_secret=client_secret,
@@ -71,9 +86,9 @@ def get_credentials_for_user(user_id: str) -> Credentials:
         if creds.expiry:
             e = creds.expiry if creds.expiry.tzinfo else creds.expiry.replace(tzinfo=timezone.utc)
             new_expiry = e.isoformat()
-        get_db().table("users").update(
+        get_admin_db().table("users").update(
             {
-                "google_access_token": creds.token,
+                "google_access_token": encrypt_for_storage(creds.token),
                 "google_token_expiry": new_expiry,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -84,6 +99,11 @@ def get_credentials_for_user(user_id: str) -> Credentials:
 
 def get_credentials() -> Credentials:
     """Legacy fallback: read from token.json on disk (used only if no user_id in context)."""
+    if not _legacy_file_oauth_enabled():
+        raise RuntimeError(
+            "Legacy Google file OAuth is disabled. Set ALLOW_LEGACY_GOOGLE_FILE_OAUTH=true for local development."
+        )
+
     creds: Credentials | None = None
 
     if _TOKEN_FILE.exists():
