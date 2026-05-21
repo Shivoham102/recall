@@ -23,13 +23,11 @@ class ProactiveResult:
 _CALENDAR_DAY_JOBS = {"morning_brief", "pattern_learn"}
 
 # How far back to look for an existing successful run before allowing a new one.
-# None = no time window (smart_reminder uses context_key matching instead).
-_DEDUPE_WINDOWS: dict[str, timedelta | None] = {
+_DEDUPE_WINDOWS: dict[str, timedelta] = {
     "morning_brief": timedelta(days=1),   # overridden by _CALENDAR_DAY_JOBS
     "pattern_learn": timedelta(days=1),   # overridden by _CALENDAR_DAY_JOBS
     "email_triage": timedelta(minutes=90),
     "follow_up_scan": timedelta(minutes=50),
-    "smart_reminder": None,
 }
 
 MAX_RETRIES = 3
@@ -74,42 +72,30 @@ async def run_job(
         # ── 1. Check for existing row ─────────────────────────────────────────
         existing: dict | None = None
 
-        if job_type == "smart_reminder" and context_key:
+        window = _DEDUPE_WINDOWS.get(job_type)
+        if window is not None:
+            if job_type in _CALENDAR_DAY_JOBS:
+                try:
+                    _tz_obj = ZoneInfo(user_tz)
+                except ZoneInfoNotFoundError:
+                    _tz_obj = ZoneInfo("UTC")
+                _local_now = now.astimezone(_tz_obj)
+                _local_midnight = _local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+                window_start = _local_midnight.astimezone(timezone.utc).isoformat()
+            else:
+                window_start = (now - window).isoformat()
             res = (
                 db.table("proactive_jobs")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("job_type", job_type)
-                .eq("context_key", context_key)
+                .gte("started_at", window_start)
                 .order("started_at", desc=True)
                 .limit(1)
                 .execute()
             )
         else:
-            window = _DEDUPE_WINDOWS.get(job_type)
-            if window is not None:
-                if job_type in _CALENDAR_DAY_JOBS:
-                    try:
-                        _tz_obj = ZoneInfo(user_tz)
-                    except ZoneInfoNotFoundError:
-                        _tz_obj = ZoneInfo("UTC")
-                    _local_now = now.astimezone(_tz_obj)
-                    _local_midnight = _local_now.replace(hour=0, minute=0, second=0, microsecond=0)
-                    window_start = _local_midnight.astimezone(timezone.utc).isoformat()
-                else:
-                    window_start = (now - window).isoformat()
-                res = (
-                    db.table("proactive_jobs")
-                    .select("*")
-                    .eq("user_id", user_id)
-                    .eq("job_type", job_type)
-                    .gte("started_at", window_start)
-                    .order("started_at", desc=True)
-                    .limit(1)
-                    .execute()
-                )
-            else:
-                res = None
+            res = None
 
         if res and res.data:
             existing = res.data[0]

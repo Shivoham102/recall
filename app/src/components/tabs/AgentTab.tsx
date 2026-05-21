@@ -1,7 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { captureStream, playAudio } from "../../services/api";
+import { captureStream, playAudio, getItems, RecallItem } from "../../services/api";
+import { formatDue } from "../../utils/dateFormat";
 import { useRecorder } from "../../hooks/useRecorder";
 import { TabLoading } from "../TabLoading";
 import { useAgentChats } from "../../context/AgentChatsContext";
@@ -33,7 +34,6 @@ const PROACTIVE_BADGE_LABELS: Record<string, string> = {
   email_triage: "EMAIL TRIAGE",
   follow_up_scan: "FOLLOW-UP",
   pattern_learn: "PATTERN",
-  smart_reminder: "REMINDER",
 };
 
 function fmtProactiveTime(iso: string): string {
@@ -161,7 +161,7 @@ function CalendarCardGrid({ cards }: { cards: CalendarCard[] }) {
   );
 }
 
-function TaskCardGrid({ cards }: { cards: TaskCard[] }) {
+function TaskCardGrid({ cards, liveItems }: { cards: TaskCard[]; liveItems: Map<string, RecallItem> }) {
   function fmt(iso: string) {
     const d = new Date(iso);
     const now = new Date();
@@ -175,21 +175,29 @@ function TaskCardGrid({ cards }: { cards: TaskCard[] }) {
   return (
     <div className="agent-task-cards">
       {cards.map((card) => {
+        const live = liveItems.get(card.id);
         const color = TASK_TYPE_COLOR[card.intent_type] ?? "#aaa";
+        const content = live?.display_text ?? live?.content ?? card.content;
+        const dueItem = live ?? card;
+        const timestamp = live?.updated_at ?? card.created_at;
+        const isStale = !live;
         return (
           <div
             key={card.id}
             className="task-card"
             onClick={() => card.link && openUrl(card.link).catch(() => {})}
-            style={{ cursor: card.link ? "pointer" : "default" }}
+            style={{ cursor: card.link ? "pointer" : "default", opacity: isStale ? 0.5 : 1 }}
           >
             <span className="task-card__badge" style={{ color, borderColor: color }}>
               {card.intent_type.replace("_", " ")}
+              {isStale && " · resolved"}
             </span>
-            <p className="task-card__content">{card.content}</p>
+            <p className="task-card__content">{content}</p>
             <div className="task-card__footer">
-              <span className="task-card__date">{fmt(card.created_at)}</span>
-              {card.due_hint && <span className="task-card__due">due: {card.due_hint}</span>}
+              <span className="task-card__date">{fmt(timestamp)}</span>
+              {(dueItem.due_hint || dueItem.due_at) && (
+                <span className="task-card__due">due: {formatDue(dueItem).toLowerCase()}</span>
+              )}
             </div>
           </div>
         );
@@ -223,8 +231,25 @@ export function AgentTab() {
 
   const [orbError, setOrbError] = useState(false);
   const [sidebarPeek, setSidebarPeek] = useState(false);
+  const [liveItems, setLiveItems] = useState<Map<string, RecallItem>>(new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  const refreshLiveItems = useCallback(async () => {
+    try {
+      const items = await getItems({ status: "open" });
+      setLiveItems(new Map(items.map((i) => [i.id, i])));
+    } catch {
+      // best-effort
+    }
+  }, []);
+
+  useEffect(() => { void refreshLiveItems(); }, [refreshLiveItems]);
+
+  useEffect(() => {
+    const unlisten = listen("recall:new-turn", () => { void refreshLiveItems(); });
+    return () => { unlisten.then((f) => f()); };
+  }, [refreshLiveItems]);
   /** After unpin: ignore edge-hover peek until cursor moves away from the left strip. */
   const suppressEdgePeekRef = useRef(false);
   const recorder = useRecorder();
@@ -536,7 +561,7 @@ export function AgentTab() {
                 {t.text && <p>{t.text}</p>}
                 {t.emailCards && t.emailCards.length > 0 && <EmailCardGrid cards={t.emailCards} />}
                 {t.calendarCards && t.calendarCards.length > 0 && <CalendarCardGrid cards={t.calendarCards} />}
-                {t.taskCards && t.taskCards.length > 0 && <TaskCardGrid cards={t.taskCards} />}
+                {t.taskCards && t.taskCards.length > 0 && <TaskCardGrid cards={t.taskCards} liveItems={liveItems} />}
               </div>
             </Fragment>
           ))}

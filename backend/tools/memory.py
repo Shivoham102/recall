@@ -34,6 +34,7 @@ async def recall_search(inp: dict) -> dict:
             "status": i["status"],
             "created_at": i["created_at"],
             "due_hint": i.get("due_hint"),
+            "due_at": i.get("due_at"),
         }
         for i in items
     ]

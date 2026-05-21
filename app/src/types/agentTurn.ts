@@ -32,6 +32,8 @@ export interface TaskCard {
   status: string;
   created_at: string;
   due_hint?: string | null;
+  due_at?: string | null;
+  display_text?: string | null;
   link?: string | null;
 }
 

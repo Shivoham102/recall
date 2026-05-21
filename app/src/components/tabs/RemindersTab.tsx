@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getItems, updateItem, RecallItem } from "../../services/api";
 import { TabLoading } from "../TabLoading";
+import { formatDue } from "../../utils/dateFormat";
 
 export function RemindersTab() {
   const [items, setItems] = useState<RecallItem[]>([]);
@@ -52,7 +53,7 @@ export function RemindersTab() {
           <div key={item.id} className="reminder-card">
             <div className="reminder-card__due">
               <span className="reminder-card__due-icon">◷</span>
-              {formatReminderDue(item)}
+              {formatDue(item)}
             </div>
             <p className="reminder-card__content">{item.display_text || item.content}</p>
             <div className="reminder-card__footer">
@@ -78,7 +79,7 @@ export function RemindersTab() {
               <div key={item.id} className="reminder-card reminder-card--missed">
                 <div className="reminder-card__due">
                   <span className="reminder-card__due-icon">◷</span>
-                  {formatReminderDue(item)}
+                  {formatDue(item)}
                 </div>
                 <p className="reminder-card__content">{item.display_text || item.content}</p>
                 <div className="reminder-card__footer">
@@ -98,29 +99,3 @@ export function RemindersTab() {
   );
 }
 
-function formatReminderDue(item: RecallItem): string {
-  if (item.due_at) {
-    const dueDate = new Date(item.due_at);
-    if (!Number.isNaN(dueDate.getTime())) {
-      const now = new Date();
-      const formattedTime = formatTime(dueDate);
-      if (
-        dueDate.getFullYear() === now.getFullYear()
-        && dueDate.getMonth() === now.getMonth()
-        && dueDate.getDate() === now.getDate()
-      ) {
-        return `TODAY AT ${formattedTime}`;
-      }
-      const monthDay = dueDate.toLocaleDateString([], { month: "short", day: "numeric" }).toUpperCase();
-      return `${monthDay} AT ${formattedTime}`;
-    }
-  }
-  return (item.due_hint ?? "").toUpperCase();
-}
-
-function formatTime(date: Date): string {
-  const options = date.getMinutes() === 0
-    ? { hour: "numeric" as const }
-    : { hour: "numeric" as const, minute: "2-digit" as const };
-  return date.toLocaleTimeString([], options).toUpperCase();
-}

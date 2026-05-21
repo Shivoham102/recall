@@ -124,8 +124,7 @@ $$;
 
 -- ── Proactive agent jobs ──────────────────────────────────────────────────────
 -- Tracks every proactive job run per user. Dedupe and retry logic lives in runner.py.
--- job_type: 'morning_brief' | 'email_triage' | 'follow_up_scan' | 'pattern_learn' | 'smart_reminder'
--- context_key: NULL for most jobs; stores item_id for smart_reminder per-item dedupe.
+-- job_type: 'morning_brief' | 'email_triage' | 'follow_up_scan' | 'pattern_learn'
 -- retry_count: counts failures only, not pre-execution attempts.
 CREATE TABLE IF NOT EXISTS proactive_jobs (
   id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
