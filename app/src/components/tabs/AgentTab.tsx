@@ -177,7 +177,12 @@ function TaskCardGrid({ cards }: { cards: TaskCard[] }) {
       {cards.map((card) => {
         const color = TASK_TYPE_COLOR[card.intent_type] ?? "#aaa";
         return (
-          <div key={card.id} className="task-card">
+          <div
+            key={card.id}
+            className="task-card"
+            onClick={() => card.link && openUrl(card.link).catch(() => {})}
+            style={{ cursor: card.link ? "pointer" : "default" }}
+          >
             <span className="task-card__badge" style={{ color, borderColor: color }}>
               {card.intent_type.replace("_", " ")}
             </span>

@@ -32,6 +32,7 @@ export interface TaskCard {
   status: string;
   created_at: string;
   due_hint?: string | null;
+  link?: string | null;
 }
 
 export interface AgentTurn {

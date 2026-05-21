@@ -202,6 +202,7 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
             "status": "open",
             "created_at": now.isoformat(),
             "due_hint": None,
+            "link": f"https://mail.google.com/mail/u/0/#all/{item.get('thread_id', '')}" if item.get("thread_id") else None,
         }
         for item in all_pending
     ]
