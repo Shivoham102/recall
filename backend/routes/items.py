@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
+from datetime import datetime, timezone
 import re
 from db import get_db
 from auth import get_current_user
@@ -96,6 +97,7 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(get_current
     update = {k: v for k, v in body.model_dump().items() if v is not None}
     if not update:
         return {}
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
     result = (
         db.table("recall_items")
         .update(update)

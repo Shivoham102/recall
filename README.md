@@ -12,6 +12,7 @@ Hit a hotkey, speak a thought, and Recall captures it, classifies it, and respon
 - **Agentic conversations** — multi-turn voice chat with real tool use: search your memory, check Gmail, read your calendar, create files
 - **Intent classification** — automatically tags each input as a task, blocker, follow-up, progress update, or note
 - **RAG-powered memory** — before responding, the agent retrieves semantically similar items from your history and reasons over their status and timestamps
+- **Personal memory** — optional Supermemory integration for durable user facts/preferences that personalize briefs, triage, drafting, and disambiguation
 - **Reminders** — set due dates by voice ("remind me at 3 PM"); the app delivers an audio reminder at the right time, even if it was closed in between
 - **Gmail integration** — read inbox updates, draft emails in your writing style (fetches your sent history first)
 - **Google Calendar integration** — list upcoming events, create events by voice with confirmation
@@ -26,7 +27,7 @@ Hit a hotkey, speak a thought, and Recall captures it, classifies it, and respon
 │  Tauri v2 + React (two windows)                              │
 │                                                              │
 │  Orb window  — Ctrl+Shift+Space, quick voice capture         │
-│  MainApp     — 5 tabs: Agent · Tasks · Transcripts ·         │
+│  MainApp     — 5 tabs: Agent · Tasks · Memory ·              │
 │                        Reminders · Profile                   │
 │  System tray icon for minimize/restore                       │
 └──────────────────┬───────────────────────────────────────────┘
@@ -59,6 +60,7 @@ Hit a hotkey, speak a thought, and Recall captures it, classifies it, and respon
 │  Auth         — Google OAuth SSO via Supabase Auth           │
 │  recall_items — items, embeddings, due dates, reminders      │
 │  sessions     — persisted conversation history per session   │
+│  Supermemory  — optional personal facts/preferences          │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -108,6 +110,7 @@ recall/
 │   │   ├── voice.py          ← GET /auth/callback (Supabase deep-link redirect)
 │   │   ├── agent_stream.py   ← POST /capture/stream (SSE, main path)
 │   │   ├── items.py          ← GET /items, PATCH /items/:id
+│   │   ├── memory.py         ← GET /memory/profile, DELETE /memory/clear
 │   │   └── reminders.py      ← GET /reminders/*, POST /reminders/dismiss
 │   ├── tools/
 │   │   ├── __init__.py       ← TOOL_DEFINITIONS + TOOL_REGISTRY
@@ -127,7 +130,8 @@ recall/
         │   └── tabs/
         │       ├── AgentTab.tsx        ← streaming chat, tool steps, email/task cards
         │       ├── TasksTab.tsx
-        │       ├── TranscriptsTab.tsx
+        │       ├── MemoryTab.tsx
+        │       ├── TranscriptsTab.tsx  ← hidden, retained for debug/audit
         │       ├── RemindersTab.tsx
         │       └── ProfileTab.tsx      ← user info, Google connection, sign out
         ├── hooks/
@@ -154,6 +158,7 @@ recall/
 | Anthropic API key | [console.anthropic.com](https://console.anthropic.com) |
 | OpenAI API key | Used for embeddings |
 | Cartesia API key | [cartesia.ai](https://cartesia.ai) — STT + TTS |
+| Supermemory API key | Optional personal memory/profile integration |
 
 ---
 
@@ -179,6 +184,9 @@ BACKEND_PORT=8000
 CRON_SECRET=change-me              # protects weekly Vercel cron endpoint
 CARTESIA_API_KEY=...
 CARTESIA_VOICE_ID=a0e99841-438c-4a64-b679-ae501e7d6091  # find voices at cartesia.ai/voices
+# Optional: durable personal memory
+SUPERMEMORY_API_KEY=...
+SUPERMEMORY_ENABLED=true  # set false as a kill switch
 ```
 
 ### 2. Initialize the database
@@ -254,6 +262,14 @@ Local development note:
 
 - You can run without cron while iterating locally (the app can still do draft-time fallback refresh),
   but deployed environments should enable the cron job.
+
+### 7. Optional: Supermemory personal memory
+
+Set `SUPERMEMORY_API_KEY` to enable the Memory tab and compact user-profile context for personalization.
+If the key is missing, or `SUPERMEMORY_ENABLED=false`, Recall skips Supermemory reads/writes and continues normally.
+
+Supermemory ingestion can be asynchronous, so newly remembered facts may take a moment to appear in the Memory tab.
+Rate limits or quota errors degrade gracefully: Recall temporarily skips Supermemory and keeps capture/proactive jobs working.
 
 ---
 

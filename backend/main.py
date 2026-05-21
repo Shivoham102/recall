@@ -1,8 +1,11 @@
+import logging
 import os
 import sys
 import socket
 import pathlib
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Ensure backend/ is on sys.path so relative imports work on Vercel
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
@@ -25,6 +28,7 @@ from routes.chat_title import router as chat_title_router
 from routes.cron import router as cron_router
 from routes.proactive import router as proactive_router
 from routes.google_tokens import router as google_tokens_router
+from routes.memory import router as memory_router
 
 app = FastAPI(title="Recall Backend")
 
@@ -54,6 +58,10 @@ app.include_router(voice_router)
 app.include_router(cron_router)
 app.include_router(proactive_router)
 app.include_router(google_tokens_router)
+app.include_router(memory_router)
+
+_sm_enabled = bool(os.environ.get("SUPERMEMORY_API_KEY", "").strip())
+logger.info("Supermemory: %s", "enabled" if _sm_enabled else "disabled (no API key)")
 
 
 @app.get("/health")

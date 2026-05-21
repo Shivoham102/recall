@@ -19,7 +19,11 @@ export function TasksTab() {
     setLoading(true);
     try {
       const data = await getItems({ status: "open" });
-      setItems(data.sort((a, b) => TYPE_ORDER.indexOf(a.intent_type) - TYPE_ORDER.indexOf(b.intent_type)));
+      setItems(data.sort((a, b) => {
+        const typeDiff = TYPE_ORDER.indexOf(a.intent_type) - TYPE_ORDER.indexOf(b.intent_type);
+        if (typeDiff !== 0) return typeDiff;
+        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+      }));
     } finally {
       setLoading(false);
     }
@@ -57,7 +61,7 @@ export function TasksTab() {
             </span>
             <p className="task-card__content">{item.display_text || item.content}</p>
             <div className="task-card__footer">
-              <span className="task-card__date">{fmt(item.created_at)}</span>
+              <span className="task-card__date">{fmt(item.updated_at)}</span>
               {item.due_hint && <span className="task-card__due">due: {item.due_hint}</span>}
               <button className="task-card__resolve" onClick={() => resolve(item.id)} title="Mark resolved">✓</button>
             </div>

@@ -11,6 +11,7 @@ export type StreamEvent =
   | { type: "spoken"; text: string }
   | { type: "metadata"; intent_type: string; should_store: boolean; due_hint: string | null; reminder_text: string | null; awaiting_clarification: boolean }
   | { type: "stored"; item_id: string | null; due_at: string | null }
+  | { type: "item_updated"; item_id: unknown; due_at: unknown }
   | { type: "audio"; audio_base64: string }
   | { type: "error"; message: string; }
   | { type: "done" };
@@ -101,6 +102,18 @@ export interface RecallItem {
   display_text?: string;
 }
 
+export interface MemoryProfile {
+  configured: boolean;
+  enabled: boolean;
+  status: string;
+  processing_hint?: string;
+  profile: {
+    static: string[];
+    dynamic: string[];
+  };
+  relevant_memories: string[];
+}
+
 export interface PendingReminder {
   id: string;
   content: string;
@@ -157,6 +170,20 @@ export async function updateItem(
     body: JSON.stringify(update),
   });
   if (!res.ok) throw new Error(`updateItem failed: ${res.status}`);
+  return res.json();
+}
+
+export async function getMemoryProfile(): Promise<MemoryProfile> {
+  const res = await authenticatedFetch(`${await getBase()}/memory/profile`);
+  if (!res.ok) throw new Error(`memory/profile failed: ${res.status}`);
+  return res.json();
+}
+
+export async function clearMemory(): Promise<{ ok: boolean; status: string }> {
+  const res = await authenticatedFetch(`${await getBase()}/memory/clear`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`memory/clear failed: ${res.status}`);
   return res.json();
 }
 

@@ -1,6 +1,9 @@
 import asyncio
+from datetime import datetime, timezone
+import context
 from db import get_db
-from rag import retrieve_similar
+from rag import embed, retrieve_similar
+from time_utils import parse_due_at
 
 # Module-level cache so surface_tasks can look up by index (single-user app)
 _last_task_fetch: list = []
@@ -60,19 +63,80 @@ async def surface_tasks(inp: dict) -> dict:
 
 async def recall_update_item(inp: dict) -> dict:
     item_id = inp["item_id"]
-    status = inp.get("status", "resolved")
-    due_hint = inp.get("due_hint")
+    user_id = context.current_user_id.get("")
+    if not user_id:
+        return {
+            "summary": "Cannot update item without a user scope",
+            "updated": False,
+            "item_id": item_id,
+            "error": True,
+        }
 
-    update: dict = {"status": status}
-    if due_hint:
-        update["due_hint"] = due_hint
+    update: dict = {}
 
-    await asyncio.to_thread(
-        lambda: get_db().table("recall_items").update(update).eq("id", item_id).execute()
+    if "status" in inp and inp.get("status") is not None:
+        update["status"] = inp["status"]
+
+    if "content" in inp and inp.get("content") is not None:
+        content = str(inp["content"]).strip()
+        if content:
+            update["content"] = content
+            update["embedding"] = embed(content)
+
+    if "reminder_text" in inp:
+        update["reminder_text"] = inp.get("reminder_text")
+
+    if "due_hint" in inp:
+        due_hint = inp.get("due_hint")
+        if due_hint is None:
+            update["due_hint"] = None
+            update["due_at"] = None
+        else:
+            due_hint_text = str(due_hint).strip()
+            due_at = parse_due_at(due_hint_text, context.current_user_tz.get("UTC"))
+            if not due_at:
+                return {
+                    "summary": f"Could not parse due date: {due_hint}",
+                    "updated": False,
+                    "item_id": item_id,
+                    "error": True,
+                }
+            update["due_hint"] = due_hint_text
+            update["due_at"] = due_at
+
+    if not update:
+        return {
+            "summary": "No item updates provided",
+            "updated": False,
+            "item_id": item_id,
+        }
+
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    result = await asyncio.to_thread(
+        lambda: get_db()
+            .table("recall_items")
+            .update(update)
+            .eq("id", item_id)
+            .eq("user_id", user_id)
+            .execute()
     )
+    rows = result.data or []
+    if not rows:
+        return {
+            "summary": "No matching item found to update",
+            "updated": False,
+            "item_id": item_id,
+            "error": True,
+        }
+
+    row = rows[0]
 
     return {
-        "summary": f"Marked item as {status}",
+        "summary": "Updated item",
         "updated": True,
         "item_id": item_id,
+        "due_at": row.get("due_at"),
+        "due_hint": row.get("due_hint"),
+        "status": row.get("status"),
     }

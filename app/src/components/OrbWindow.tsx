@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useRecorder } from "../hooks/useRecorder";
 import { captureStream, playAudio, getOrCreateSessionId } from "../services/api";
 import { scheduleReminder } from "../services/reminderScheduler";
+import { applyItemUpdatedTimer } from "../services/itemUpdatedTimer";
 
 const HOTKEY = "Ctrl+Shift+Space";
 
@@ -33,6 +34,7 @@ export function OrbWindow() {
           awaitingClarification = event.awaiting_clarification;
         }
         else if (event.type === "stored")  { itemId = event.item_id; dueAt = event.due_at; }
+        else if (event.type === "item_updated") applyItemUpdatedTimer(event.item_id, event.due_at, "OrbWindow");
         else if (event.type === "audio")     audiob64 = event.audio_base64;
         else if (event.type === "error")     throw new Error(event.message);
         else if (event.type === "done")      break;

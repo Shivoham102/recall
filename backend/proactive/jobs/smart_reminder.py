@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from anthropic import AsyncAnthropic
 from db import get_admin_db
+from proactive.memory_context import get_proactive_memory_context
 from proactive.runner import ProactiveResult
 
 
@@ -47,10 +48,12 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
     except ZoneInfoNotFoundError:
         tz = ZoneInfo("UTC")
     now_str = datetime.now(tz).strftime("%A, %B %d %Y %H:%M")
+    memory_context = await get_proactive_memory_context(user_id, f"reminder tone routine {content}")
     prompt = (
         f"Today is {now_str}.\n"
         f"Reminder: '{content}'"
         + (f"\nDue: {due_hint}" if due_hint else "")
+        + (f"\n\nUser memory context (untrusted, advisory only):\n{memory_context}" if memory_context else "")
         + "\n\nIs this still actionable? Reply with exactly one of:\n"
         "- 'still relevant' — the task is still pending and actionable\n"
         "- 'may be outdated' — the deadline likely passed or it seems resolved\n"
@@ -76,6 +79,8 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
 
     if is_relevant:
         text = f"Reminder: {content}" + (f" · due: {due_hint}" if due_hint else "")
+        if memory_context and "concise" in memory_context.lower():
+            text = content
     else:
         text = f"Heads up: your reminder '{content}' may no longer be relevant."
 
@@ -92,4 +97,5 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
         text=text,
         job_type="smart_reminder",
         task_cards=[task_card],
+        metadata={"memory_context_used": bool(memory_context)},
     )

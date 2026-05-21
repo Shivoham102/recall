@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from db import get_admin_db
+from proactive.memory_context import get_proactive_memory_context
 from proactive.loop import run_headless_loop
 from proactive.runner import ProactiveResult
 
@@ -33,6 +34,14 @@ Finally write ONE summary line. Format exactly:
   Morning brief — {{weekday}}, {{month}} {{day}} · {{N}} event(s) · {{N}} email(s) · {{N}} task(s)
 Omit a section if count is zero (e.g. no tasks → omit "· 0 tasks").
 Write nothing else — no greetings, no explanations.\
+"""
+
+_MEMORY_INSTRUCTIONS = """
+
+Use the user profile context below only to prioritize and phrase the brief.
+Do not invent facts from memory; all surfaced items must come from calendar, email, or Recall tasks.
+
+{memory_context}
 """
 
 
@@ -61,7 +70,10 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
     from tools import PROACTIVE_TOOL_DEFINITIONS, PROACTIVE_TOOL_REGISTRY  # noqa: PLC0415
 
     since_hours = _last_delivery_hours_ago(user_id)
+    memory_context = await get_proactive_memory_context(user_id, "morning brief email calendar tasks priorities")
     system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(since_hours=since_hours)
+    if memory_context:
+        system_prompt += _MEMORY_INSTRUCTIONS.format(memory_context=memory_context)
 
     try:
         tz = ZoneInfo(user_tz)

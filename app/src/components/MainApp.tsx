@@ -1,10 +1,13 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AgentTab } from "./tabs/AgentTab";
 import { TasksTab } from "./tabs/TasksTab";
-import { TranscriptsTab } from "./tabs/TranscriptsTab";
+// TranscriptsTab is intentionally kept in the codebase for possible audit/debug use.
+// import { TranscriptsTab } from "./tabs/TranscriptsTab";
+import { MemoryTab } from "./tabs/MemoryTab";
 import { RemindersTab } from "./tabs/RemindersTab";
 import { ProfileTab } from "./tabs/ProfileTab";
+import { BrainIcon } from "./icons/BrainIcon";
 import { loadPendingReminders } from "../services/reminderScheduler";
 import { AuthUser } from "../hooks/useAuth";
 import { AgentChatsProvider } from "../context/AgentChatsContext";
@@ -14,12 +17,13 @@ interface Props {
   onLogout: () => void;
 }
 
-type Tab = "agent" | "tasks" | "transcripts" | "reminders" | "profile";
+type Tab = "agent" | "tasks" | "memory" | "reminders" | "profile";
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
+const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   { id: "agent",       label: "Agent",       icon: "◈" },
   { id: "tasks",       label: "Tasks",       icon: "◻" },
-  { id: "transcripts", label: "Transcripts", icon: "≡" },
+  // { id: "transcripts", label: "Transcripts", icon: "≡" },
+  { id: "memory",      label: "Memory",      icon: <BrainIcon /> },
   { id: "reminders",   label: "Reminders",   icon: "◷" },
   { id: "profile",     label: "Profile",     icon: "◉" },
 ];
@@ -56,7 +60,7 @@ export function MainApp({ user, onLogout }: Props) {
               className={`titlebar__tab ${tab === t.id ? "titlebar__tab--active" : ""}`}
               onClick={() => setTab(t.id)}
             >
-              <span>{t.icon}</span>
+              <span className="titlebar__tab-icon">{t.icon}</span>
               {t.label}
             </button>
           ))}
@@ -72,7 +76,8 @@ export function MainApp({ user, onLogout }: Props) {
         <div className="main-content">
           {tab === "agent"       && <AgentTab />}
           {tab === "tasks"       && <TasksTab />}
-          {tab === "transcripts" && <TranscriptsTab />}
+          {/* {tab === "transcripts" && <TranscriptsTab />} */}
+          {tab === "memory"      && <MemoryTab />}
           {tab === "reminders"   && <RemindersTab />}
           {tab === "profile"     && <ProfileTab user={user} onLogout={onLogout} />}
         </div>

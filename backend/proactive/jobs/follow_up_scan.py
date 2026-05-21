@@ -11,6 +11,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from db import get_admin_db
+from proactive.memory_context import get_proactive_memory_context
 from proactive.runner import ProactiveResult
 
 _CONCLUDED_PATTERNS = re.compile(
@@ -38,6 +39,17 @@ def _truncate(text: str, n: int) -> str:
     if len(text) <= n:
         return text
     return text[:n].rsplit(" ", 1)[0] + "..."
+
+
+def _memory_score(item: dict, memory_context: str) -> int:
+    if not memory_context:
+        return 0
+    haystack = " ".join(str(item.get(k, "")) for k in ("counterparty", "subject", "commitment_text")).lower()
+    score = 0
+    for token in set(memory_context.lower().replace("-", " ").split()):
+        if len(token) >= 5 and token in haystack:
+            score += 1
+    return score
 
 
 def _thread_is_concluded(svc, thread_id: str) -> bool:
@@ -113,6 +125,7 @@ def _search_commitments() -> list[dict]:
 async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC") -> ProactiveResult:
     db = get_admin_db()
     now = datetime.now(timezone.utc)
+    memory_context = await get_proactive_memory_context(user_id, "follow up relationships projects commitments")
 
     # Find commitment threads in sent mail
     commitments = await asyncio.to_thread(_search_commitments)
@@ -169,6 +182,8 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
                 new_items.append({**commitment, "id": insert_res.data[0]["id"]})
 
     all_pending = new_items + nudge_due
+    if memory_context:
+        all_pending = sorted(all_pending, key=lambda item: _memory_score(item, memory_context), reverse=True)
     if not all_pending:
         return ProactiveResult(
             text="Follow-up scan complete — nothing pending",
@@ -201,4 +216,5 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
         text=text,
         job_type="follow_up_scan",
         task_cards=task_cards,
+        metadata={"memory_context_used": bool(memory_context)},
     )

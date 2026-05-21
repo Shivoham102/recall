@@ -1,5 +1,6 @@
 from tools.memory import classify_intent, recall_search, recall_update_item, surface_tasks
 from tools.filesystem import file_create
+from tools.user_memory import remember_user_memory
 
 _google_tools_available = False
 try:
@@ -41,6 +42,10 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "Full task/reminder description to store. Only set when completing a multi-turn sequence where the current transcript alone doesn't capture the full intent (e.g. user originally said 'do X on the 14th', now says '10am' — content: 'do X on the 14th'). Reflects any corrections made across turns.",
                 },
+                "update_only": {
+                    "type": "boolean",
+                    "description": "Set true for an update/correction turn that should not create a new stored item.",
+                },
             },
             "required": ["intent_type", "should_store"],
         },
@@ -65,17 +70,33 @@ TOOL_DEFINITIONS = [
     {
         "name": "recall_update_item",
         "description": (
-            "Mark a recall item as resolved, snoozed, or update its due date. "
+            "Update an existing recall item by id: status, content, reminder text, or due date. "
+            "Use for corrections/reschedules to existing tasks/reminders, not for new captures. "
             "Only call this AFTER the user has confirmed the action in conversation."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "item_id": {"type": "string"},
-                "status": {"type": "string", "enum": ["resolved", "open", "snoozed"]},
-                "due_hint": {"type": "string", "description": "Updated due date in natural language, optional"},
+                "status": {
+                    "type": "string",
+                    "enum": ["resolved", "open", "snoozed"],
+                    "description": "Optional. Only set when the user explicitly changes status.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Optional updated item content. Replaces the existing content.",
+                },
+                "due_hint": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "description": "Optional updated due date in natural language. Use null only when the user explicitly clears the reminder time.",
+                },
+                "reminder_text": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "description": "Optional updated text to say when the reminder fires. Use null to clear it.",
+                },
             },
-            "required": ["item_id", "status"],
+            "required": ["item_id"],
         },
     },
     {
@@ -99,6 +120,42 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "remember_user_memory",
+        "description": (
+            "Store a durable personal fact, preference, relationship, routine, or long-running project in Supermemory. "
+            "Use for explicit 'remember that...' statements and very clear stable personal context. "
+            "Do not use for tasks, reminders, one-off commands, ordinary questions, or temporary moods."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "memory": {
+                    "type": "string",
+                    "description": "Distilled memory to store, e.g. 'User prefers concise updates'.",
+                },
+                "category": {
+                    "type": "string",
+                    "enum": ["fact", "preference", "relationship", "routine", "project", "health", "finance", "legal", "location", "relationship_sensitive", "secret"],
+                },
+                "sensitivity": {
+                    "type": "string",
+                    "enum": ["normal", "sensitive", "secret"],
+                    "description": "Mark sensitive personal context. Secrets/credentials must not be stored.",
+                },
+                "confidence": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": "Use high for explicit or very clear stable facts.",
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": "Set true only if the user explicitly confirmed storing sensitive context.",
+                },
+            },
+            "required": ["memory", "category"],
+        },
+    },
+    {
         "name": "file_create",
         "description": "Create a new text file on the local filesystem. Safe to call immediately — no confirmation needed.",
         "input_schema": {
@@ -118,6 +175,7 @@ TOOL_REGISTRY: dict = {
     "recall_search": recall_search,
     "recall_update_item": recall_update_item,
     "surface_tasks": surface_tasks,
+    "remember_user_memory": remember_user_memory,
     "file_create": file_create,
 }
 

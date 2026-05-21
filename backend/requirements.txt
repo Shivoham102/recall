@@ -12,3 +12,4 @@ google-auth>=2.0.0
 httpx>=0.27.0
 cartesia>=3.0.0
 cryptography
+supermemory

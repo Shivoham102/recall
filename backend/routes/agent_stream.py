@@ -9,6 +9,7 @@ from tts import synthesize
 from auth import get_current_user
 from db import get_admin_db
 from time_utils import parse_due_at, _is_valid_iana
+from supermemory_client import format_memory_context, get_user_profile, likely_memory_useful
 import context
 
 router = APIRouter()
@@ -26,6 +27,16 @@ def _fmt_context(items: list[dict]) -> str:
 
 def _sse(event: dict) -> str:
     return f"data: {json.dumps(event)}\n\n"
+
+
+def _should_store_capture(metadata: dict, spoken: str, handled_update_item: bool) -> bool:
+    return bool(
+        metadata.get("should_store")
+        and not metadata.get("awaiting_clarification")
+        and not handled_update_item
+        and not metadata.get("update_only")
+        and spoken
+    )
 
 
 @router.post("/capture/stream")
@@ -65,6 +76,10 @@ async def capture_stream(
 
         similar = retrieve_similar(transcript)
         rag_context = _fmt_context(similar)
+        user_memory_context = ""
+        if likely_memory_useful(transcript):
+            profile = await get_user_profile(user["sub"], transcript, timeout=1.0, allow_stale=True)
+            user_memory_context = format_memory_context(profile)
     finally:
         context.current_user_id.reset(_uid_tok)
 
@@ -75,10 +90,17 @@ async def capture_stream(
             yield _sse({"type": "transcript", "text": transcript})
 
             spoken = ""
-            metadata: dict = {"intent_type": "note", "should_store": False, "due_hint": None, "reminder_text": None, "content": None, "awaiting_clarification": False}
+            metadata: dict = {"intent_type": "note", "should_store": False, "due_hint": None, "reminder_text": None, "content": None, "awaiting_clarification": False, "update_only": False}
+            handled_update_item = False
 
             try:
-                async for event in run_agentic_loop(session_id, transcript, rag_context, user_tz=safe_tz):
+                async for event in run_agentic_loop(
+                    session_id,
+                    transcript,
+                    rag_context,
+                    user_tz=safe_tz,
+                    user_memory_context=user_memory_context,
+                ):
                     if event["type"] == "ack":
                         try:
                             ack_audio = await synthesize(event["text"])
@@ -92,6 +114,20 @@ async def capture_stream(
                     elif event["type"] == "metadata":
                         metadata = {k: v for k, v in event.items() if k != "type"}
                         yield _sse(event)
+                    elif event["type"] == "tool_result":
+                        yield _sse(event)
+                        data = event.get("data") or {}
+                        if (
+                            event.get("name") == "recall_update_item"
+                            and data.get("updated") is True
+                            and data.get("item_id")
+                        ):
+                            handled_update_item = True
+                            yield _sse({
+                                "type": "item_updated",
+                                "item_id": data.get("item_id"),
+                                "due_at": data.get("due_at"),
+                            })
                     else:
                         yield _sse(event)
             except Exception as exc:
@@ -103,7 +139,7 @@ async def capture_stream(
             # Store item if requested (hard gate: never store on clarifying question turns)
             due_at = parse_due_at(metadata.get("due_hint"), safe_tz)
             item_id = None
-            if metadata.get("should_store") and not metadata.get("awaiting_clarification") and spoken:
+            if _should_store_capture(metadata, spoken, handled_update_item):
                 item_id = store_item(
                     content=metadata.get("content") or transcript,
                     intent_type=metadata.get("intent_type", "note"),

@@ -7,6 +7,7 @@ import { TabLoading } from "../TabLoading";
 import { useAgentChats } from "../../context/AgentChatsContext";
 import { AgentStep, CalendarCard, EmailCard, TaskCard } from "../../types/agentTurn";
 import { scheduleReminder } from "../../services/reminderScheduler";
+import { applyItemUpdatedTimer } from "../../services/itemUpdatedTimer";
 import { AgentChatSidebar } from "./AgentChatSidebar";
 
 const TASK_TYPE_COLOR: Record<string, string> = {
@@ -328,6 +329,8 @@ export function AgentTab() {
         } else if (event.type === "stored") {
           itemId = event.item_id;
           dueAt = event.due_at;
+        } else if (event.type === "item_updated") {
+          applyItemUpdatedTimer(event.item_id, event.due_at, "AgentTab");
         } else if (event.type === "audio") {
           audiob64 = event.audio_base64;
         } else if (event.type === "error") {
