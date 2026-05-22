@@ -17,12 +17,16 @@ jobs:
           - platform: windows-latest
             rust-target: x86_64-pc-windows-msvc
             bundle-glob: 'bundle/nsis/*.exe'
+            sig-glob: 'bundle/nsis/*.exe.sig'
           - platform: macos-latest
             rust-target: aarch64-apple-darwin
             bundle-glob: 'bundle/dmg/*.dmg'
+            updater-glob: 'bundle/macos/*.app.tar.gz'
+            sig-glob: 'bundle/macos/*.app.tar.gz.sig'
           - platform: ubuntu-22.04
             rust-target: x86_64-unknown-linux-gnu
             bundle-glob: 'bundle/appimage/*.AppImage'
+            sig-glob: 'bundle/appimage/*.AppImage.sig'
 
     runs-on: ${{ matrix.platform }}
 
@@ -73,6 +77,9 @@ jobs:
 
       - name: Build Tauri app
         working-directory: app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: pnpm tauri build --target ${{ matrix.rust-target }}
 
       - name: Publish release
@@ -82,8 +89,14 @@ jobs:
             || gh release create "${{ github.ref_name }}" \
                  --title "Recall ${{ github.ref_name }}" \
                  --generate-notes
-          gh release upload "${{ github.ref_name }}" \
-            app/src-tauri/target/${{ matrix.rust-target }}/release/${{ matrix.bundle-glob }} \
-            --clobber
+
+          # Collect artifacts: installer, .sig, and macOS updater tar (if present)
+          ARTIFACTS=$(echo app/src-tauri/target/${{ matrix.rust-target }}/release/${{ matrix.bundle-glob }})
+          ARTIFACTS="$ARTIFACTS $(echo app/src-tauri/target/${{ matrix.rust-target }}/release/${{ matrix.sig-glob }})"
+          if [ -n "${{ matrix.updater-glob }}" ]; then
+            ARTIFACTS="$ARTIFACTS $(echo app/src-tauri/target/${{ matrix.rust-target }}/release/${{ matrix.updater-glob }})"
+          fi
+
+          gh release upload "${{ github.ref_name }}" $ARTIFACTS --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

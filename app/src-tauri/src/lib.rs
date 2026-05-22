@@ -2,11 +2,12 @@ use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    LogicalPosition, Manager,
+    Emitter, LogicalPosition, Manager,
 };
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_updater::UpdaterExt;
 
 struct BackendProcess(Mutex<Option<CommandChild>>);
 struct BackendPort(Mutex<Option<u16>>);
@@ -20,6 +21,7 @@ fn get_backend_port(state: tauri::State<'_, BackendPort>) -> Option<u16> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_http::init())
@@ -88,10 +90,23 @@ pub fn run() {
                 });
             }
 
+            // Background update check on startup
+            let update_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Ok(Some(update)) = update_handle.updater().check().await {
+                    let version = update.version.clone();
+                    let _ = update_handle.emit("update-available", &version);
+                    if let Ok(()) = update.download_and_install(|_, _| {}, || {}).await {
+                        let _ = update_handle.emit("update-ready", &version);
+                    }
+                }
+            });
+
             // System tray
             let show = MenuItem::with_id(app, "show", "Show Recall", true, None::<&str>)?;
+            let check_update = MenuItem::with_id(app, "update", "Check for updates", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &quit])?;
+            let menu = Menu::with_items(app, &[&show, &check_update, &quit])?;
 
             let icon = app
                 .default_window_icon()
@@ -127,6 +142,26 @@ pub fn run() {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
+                    }
+                    "update" => {
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            match app.updater().check().await {
+                                Ok(Some(update)) => {
+                                    let version = update.version.clone();
+                                    let _ = app.emit("update-available", &version);
+                                    if let Ok(()) = update.download_and_install(|_, _| {}, || {}).await {
+                                        let _ = app.emit("update-ready", &version);
+                                    }
+                                }
+                                Ok(None) => {
+                                    let _ = app.emit("update-not-found", ());
+                                }
+                                Err(e) => {
+                                    eprintln!("Update check error: {e}");
+                                }
+                            }
+                        });
                     }
                     "quit" => {
                         if let Some(child) =

@@ -47,11 +47,21 @@
                                                                       "recall"
                                                                   ]
                                                   }
-                                  }
+                                  },
+                    "updater":  {
+                                    "pubkey":  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdCREE2MDdEOTlDRDcwQzUKUldURmNNMlpmV0RhZThWdko3QnVvUm5RemorQ21zUkZuOVkyMzlMb3dnaEhlU0VNa1BPRGk0dk0K",
+                                    "endpoints":  [
+                                                      "https://recall-seven-livid.vercel.app/updates/{{target}}/{{arch}}/{{current_version}}"
+                                                  ],
+                                    "windows":  {
+                                                    "installMode":  "passive"
+                                                }
+                                }
                 },
     "bundle":  {
                    "active":  true,
                    "targets":  "all",
+                   "createUpdaterArtifacts":  true,
                    "icon":  [
                                 "icons/32x32.png",
                                 "icons/128x128.png",

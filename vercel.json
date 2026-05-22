@@ -18,6 +18,7 @@
     { "src": "/reminders/(.*)",   "dest": "backend/main.py" },
     { "src": "/agent/(.*)",       "dest": "backend/main.py" },
     { "src": "/auth/(.*)",        "dest": "backend/main.py" },
-    { "src": "/debug/(.*)",       "dest": "backend/main.py" }
+    { "src": "/debug/(.*)",       "dest": "backend/main.py" },
+    { "src": "/updates/(.*)",     "dest": "backend/main.py" }
   ]
 }
