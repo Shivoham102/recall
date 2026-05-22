@@ -39,11 +39,27 @@ async def run_headless_loop(
     model: str = "claude-haiku-4-5-20251001",
     max_iterations: int = 8,
     timeout_per_tool: float = 20.0,
+    overall_timeout: float = 240.0,
 ) -> LoopResult:
     """
     Run a tool-use loop to completion and return text + surfaced cards.
     Cards are populated by intercepting surface_cards / surface_calendar / surface_tasks results.
     """
+    return await asyncio.wait_for(
+        _run_loop(system_prompt, user_message, tool_definitions, tool_registry, model, max_iterations, timeout_per_tool),
+        timeout=overall_timeout,
+    )
+
+
+async def _run_loop(
+    system_prompt: str,
+    user_message: str,
+    tool_definitions: list[dict],
+    tool_registry: dict,
+    model: str,
+    max_iterations: int,
+    timeout_per_tool: float,
+) -> LoopResult:
     client = _get_client()
     history: list[dict] = [{"role": "user", "content": user_message}]
     result = LoopResult()

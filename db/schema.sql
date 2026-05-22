@@ -177,6 +177,21 @@ CREATE INDEX IF NOT EXISTS follow_up_threads_user_status_idx
 ALTER TABLE follow_up_threads
   ADD COLUMN IF NOT EXISTS draft_created_at timestamptz;
 
+-- was_drafted: permanent flag set when a draft is first created, never reset on delete/send.
+-- Prevents re-drafting the same thread unless the conversation advances past the old draft.
+ALTER TABLE follow_up_threads
+  ADD COLUMN IF NOT EXISTS was_drafted boolean NOT NULL DEFAULT false;
+
+UPDATE follow_up_threads
+  SET was_drafted = true
+  WHERE draft_gmail_id IS NOT NULL OR draft_created_at IS NOT NULL;
+
+-- Partial index for follow_up_draft candidate query (was_drafted=false threads only).
+-- Includes last_user_sent_at so Postgres can satisfy ORDER BY without a sort.
+CREATE INDEX IF NOT EXISTS follow_up_threads_undrafted_idx
+  ON follow_up_threads (user_id, status, last_user_sent_at)
+  WHERE was_drafted = false;
+
 -- Partial index for _check_draft_validity query (only rows with a live draft)
 CREATE INDEX IF NOT EXISTS follow_up_threads_draft_id_idx
   ON follow_up_threads (user_id, status, draft_gmail_id)

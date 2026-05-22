@@ -183,7 +183,7 @@ function TaskCardGrid({ cards, liveItems }: { cards: TaskCard[]; liveItems: Map<
         const content = live?.display_text ?? live?.content ?? card.content;
         const dueItem = live ?? card;
         const timestamp = live?.updated_at ?? card.created_at;
-        const isStale = !live;
+        const isStale = !card.intent_type.startsWith("follow_up") && !live;
         return (
           <div
             key={card.id}

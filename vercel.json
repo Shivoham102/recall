@@ -2,7 +2,7 @@
   "crons": [
     { "path": "/jobs/follow-up-draft",  "schedule": "0 6 * * *" },
     { "path": "/jobs/morning-brief",    "schedule": "0 7 * * *" },
-    { "path": "/jobs/follow-up-scan",   "schedule": "0 15 * * *" },
+    { "path": "/jobs/follow-up-scan",   "schedule": "0 5 * * *" },
     { "path": "/jobs/pattern-learn",    "schedule": "0 2 * * *" }
   ],
   "builds": [

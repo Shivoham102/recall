@@ -74,11 +74,12 @@ def _get_thread_draft_meta(svc, thread_id: str) -> dict:
         # Call 2: metadata on last message for threading headers + To/Cc (if SENT)
         detail = svc.users().messages().get(
             userId="me", id=last_msg["id"], format="metadata",
-            metadataHeaders=["Message-ID", "References", "To", "Cc"],
+            metadataHeaders=["Message-ID", "References", "To", "Cc", "Subject"],
         ).execute()
-        hdrs = {h["name"]: h["value"] for h in detail.get("payload", {}).get("headers", [])}
-        latest_id = hdrs.get("Message-ID", "")
-        ref_parts = hdrs.get("References", "").split() if hdrs.get("References") else []
+        hdrs = {h["name"].lower(): h["value"] for h in detail.get("payload", {}).get("headers", [])}
+        latest_id = hdrs.get("message-id", "")
+        subject = hdrs.get("subject", "")
+        ref_parts = hdrs.get("references", "").split() if hdrs.get("references") else []
         if latest_id and latest_id not in ref_parts:
             ref_parts.append(latest_id)
 
@@ -88,14 +89,19 @@ def _get_thread_draft_meta(svc, thread_id: str) -> dict:
                 userId="me", id=last_sent["id"], format="metadata",
                 metadataHeaders=["To", "Cc"],
             ).execute()
-            sent_hdrs = {h["name"]: h["value"] for h in sent_detail.get("payload", {}).get("headers", [])}
+            sent_hdrs = {h["name"].lower(): h["value"] for h in sent_detail.get("payload", {}).get("headers", [])}
         else:
             sent_hdrs = hdrs
 
-        cc_pairs = _eu.getaddresses([sent_hdrs.get("Cc", "")]) if sent_hdrs.get("Cc") else []
+        cc_pairs = _eu.getaddresses([sent_hdrs.get("cc", "")]) if sent_hdrs.get("cc") else []
         cc_str = ", ".join(addr for _, addr in cc_pairs if addr)
-        to_raw = sent_hdrs.get("To", "")
+        to_raw = sent_hdrs.get("to", "")
         display_to, addr_to = _eu.parseaddr(to_raw)
+        if not addr_to or "@" not in addr_to:
+            m = re.search(r"<([^>]+@[^>]+)>", to_raw)
+            if m:
+                addr_to = m.group(1)
+                display_to = to_raw[: m.start()].strip().rstrip(",").strip().strip('"')
         to_str = (
             f"{display_to} <{addr_to}>" if display_to and addr_to
             else addr_to or display_to or ""
@@ -106,11 +112,12 @@ def _get_thread_draft_meta(svc, thread_id: str) -> dict:
             "references": " ".join(ref_parts),
             "cc": cc_str,
             "to": to_str,
+            "subject": subject,
             "context_summary": context_summary,
         }
     except Exception as exc:
         print(f"[follow_up_draft] _get_thread_draft_meta error {thread_id[:8]}: {exc}")
-    return {"in_reply_to": "", "references": "", "cc": "", "to": "", "context_summary": ""}
+    return {"in_reply_to": "", "references": "", "cc": "", "to": "", "subject": "", "context_summary": ""}
 
 
 def _get_display_name(svc) -> str:
@@ -180,7 +187,7 @@ async def _run_draft_phase(
         .select("id, thread_id, counterparty, commitment_text")
         .eq("user_id", user_id)
         .eq("status", "open")
-        .is_("draft_gmail_id", "null")
+        .eq("was_drafted", False)
         .not_.is_("last_user_sent_at", "null")
         .lte("last_user_sent_at", cutoff)
         .order("last_user_sent_at")
@@ -236,15 +243,37 @@ async def _run_draft_phase(
             t_start = time.perf_counter()
             meta = await asyncio.to_thread(_get_thread_draft_meta, svc, thread["thread_id"])
             counterparty = meta["to"] or thread["counterparty"]
+
+            # Guard: skip if no valid email — avoids "Invalid To header" from Gmail
+            # Single parseaddr call; regex fallback handles unquoted @ or comma in display name
+            display_cp, to_addr = _eu.parseaddr(counterparty)
+            if not to_addr or "@" not in to_addr:
+                m = re.search(r"<([^>]+@[^>]+)>", counterparty)
+                if m:
+                    to_addr = m.group(1)
+                    display_cp = counterparty[: m.start()].strip().rstrip(",").strip().strip('"')
+                else:
+                    to_addr = ""
+            if not to_addr:
+                print(f"[follow_up_draft] skipping {thread['thread_id'][:8]}: no valid email in '{counterparty[:60]}'")
+                return None
+            cp_for_prompt = display_cp or to_addr
+
             in_reply_to = meta["in_reply_to"]
             references = meta["references"]
             cc_str = meta["cc"]
+            subject = meta.get("subject", "")
             context_summary = meta.get("context_summary") or thread["commitment_text"]
+            print(
+                f"[follow_up_draft] threading {thread['thread_id'][:8]}: "
+                f"in_reply_to={'SET' if in_reply_to else 'EMPTY'} "
+                f"subject={subject!r} counterparty_src={'meta' if meta['to'] else 'db'}"
+            )
 
             draft_body = await _haiku_draft(
                 context_summary=context_summary,
                 commitment=thread["commitment_text"],
-                counterparty=counterparty,
+                counterparty=cp_for_prompt,
                 memory_context=memory_context,
                 formality=formality,
                 avg_words=avg_words,
@@ -257,7 +286,7 @@ async def _run_draft_phase(
                 "thread_id": thread["thread_id"],
                 "to": counterparty,
                 "body": draft_body,
-                "subject": "",
+                "subject": f"Re: {subject}" if subject else "",
                 "in_reply_to": in_reply_to,
                 "references": references,
                 "cc": cc_str,
@@ -273,6 +302,7 @@ async def _run_draft_phase(
                     "draft_gmail_id": draft_id,
                     "draft_created_at": now.isoformat(),
                     "last_nudged_at": now.isoformat(),
+                    "was_drafted": True,
                 }).eq("id", thread["id"]).execute()
             except Exception as db_exc:
                 print(f"[follow_up_draft] DB update failed for draft {draft_id}: {db_exc} — deleting Gmail draft")

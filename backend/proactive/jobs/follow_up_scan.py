@@ -266,6 +266,11 @@ async def _search_raw_candidates(svc) -> list[dict]:
             continue
         snippet = html.unescape(detail.get("snippet", ""))[:200]
         display_to, addr_to = email.utils.parseaddr(to_raw)
+        if not addr_to or "@" not in addr_to:
+            m = re.search(r"<([^>]+@[^>]+)>", to_raw)
+            if m:
+                addr_to = m.group(1)
+                display_to = to_raw[: m.start()].strip().rstrip(",").strip().strip('"')
         counterparty = (
             f"{display_to} <{addr_to}>" if display_to and addr_to
             else addr_to or display_to or "(unknown)"
@@ -295,6 +300,11 @@ async def _search_raw_candidates(svc) -> list[dict]:
             continue
         snippet = html.unescape(detail.get("snippet", ""))[:200]
         display_from, addr_from = email.utils.parseaddr(from_raw)
+        if not addr_from or "@" not in addr_from:
+            m = re.search(r"<([^>]+@[^>]+)>", from_raw)
+            if m:
+                addr_from = m.group(1)
+                display_from = from_raw[: m.start()].strip().rstrip(",").strip().strip('"')
         counterparty = (
             f"{display_from} <{addr_from}>" if display_from and addr_from
             else addr_from or display_from or "(unknown)"
@@ -320,7 +330,7 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
         # Load open + ignored so ignored threads aren't re-inserted on next scan
         return (
             db.table("follow_up_threads")
-            .select("id, thread_id, counterparty, commitment_text, nudge_count, last_nudged_at, status, trigger_type, last_user_sent_at")
+            .select("id, thread_id, counterparty, commitment_text, nudge_count, last_nudged_at, status, trigger_type, last_user_sent_at, was_drafted, draft_gmail_id, draft_created_at")
             .eq("user_id", user_id)
             .in_("status", ["open", "ignored"])
             .execute()
@@ -398,6 +408,14 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
             row = existing_by_thread[thread_id]
             if row.get("status") == "ignored":
                 continue  # already ignored — don't re-surface or nudge
+            # Reset was_drafted if conversation advanced past the deleted draft.
+            # Uses commitment["sent_at"] (fresh from this scan) not stale last_user_sent_at.
+            if row.get("was_drafted") and not row.get("draft_gmail_id"):
+                draft_ts = row.get("draft_created_at")
+                sent_ts = commitment.get("sent_at")
+                if draft_ts and sent_ts and sent_ts > draft_ts:
+                    db.table("follow_up_threads").update({"was_drafted": False}).eq("id", row["id"]).execute()
+                    row["was_drafted"] = False
             last_nudged = row.get("last_nudged_at")
             if last_nudged:
                 try:

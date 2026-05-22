@@ -6,7 +6,7 @@ that curates and surfaces only genuinely relevant items as cards.
 Promotional emails, newsletters, and automated alerts are filtered out.
 Email lookback window grows if user was away multiple days (capped at 72h).
 """
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from db import get_admin_db
@@ -70,58 +70,11 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
     from tools import PROACTIVE_TOOL_DEFINITIONS, PROACTIVE_TOOL_REGISTRY  # noqa: PLC0415
 
     since_hours = _last_delivery_hours_ago(user_id)
+    print(f"[morning_brief] start user={user_id} since_hours={since_hours}")
     memory_context = await get_proactive_memory_context(user_id, "morning brief email calendar tasks priorities")
     system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(since_hours=since_hours)
     if memory_context:
         system_prompt += _MEMORY_INSTRUCTIONS.format(memory_context=memory_context)
-
-    # ── Surface auto-drafted follow-ups created since last brief ─────────────
-    _db = get_admin_db()
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
-    draft_rows = (
-        _db.table("follow_up_threads")
-        .select("counterparty, commitment_text, thread_id, draft_gmail_id")
-        .eq("user_id", user_id)
-        .eq("status", "open")
-        .not_.is_("draft_gmail_id", "null")
-        .gte("last_nudged_at", cutoff)
-        .execute()
-    ).data or []
-
-    live_draft_rows: list[dict] = []
-    if draft_rows:
-        try:
-            from googleapiclient.errors import HttpError  # noqa: PLC0415
-            from tools.google_services import _gmail_service  # noqa: PLC0415
-            _svc = _gmail_service()
-            for _row in draft_rows:
-                try:
-                    _svc.users().drafts().get(
-                        userId="me", id=_row["draft_gmail_id"], format="minimal"
-                    ).execute()
-                    live_draft_rows.append(_row)
-                except HttpError as _e:
-                    if _e.resp.status != 404:
-                        live_draft_rows.append(_row)  # non-404: assume valid, don't suppress
-                except Exception:
-                    live_draft_rows.append(_row)  # non-HTTP error: include rather than drop
-        except Exception:
-            # Gmail service init failed — include all DB-known drafts unverified
-            live_draft_rows = draft_rows
-            system_prompt += "\n\nNote: auto-drafted follow-up emails exist but could not be verified (Gmail temporarily unavailable)."
-
-    if live_draft_rows:
-        draft_lines = "\n".join(
-            f"- {r['counterparty']}: {r['commitment_text'][:80]} "
-            f"→ https://mail.google.com/mail/u/0/#all/{r['thread_id']}"
-            for r in live_draft_rows
-        )
-        system_prompt += (
-            f"\n\nAuto-drafted follow-up emails awaiting review in Gmail Drafts:\n{draft_lines}\n\n"
-            f'Surface these via surface_tasks with intent_type="follow_up_draft". '
-            f"Include the Gmail thread link for each."
-        )
-    # If draft_rows has rows but live_draft_rows is empty → silently skip
 
     try:
         tz = ZoneInfo(user_tz)
@@ -138,6 +91,7 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
     )
 
     text = loop_result.text or f"Morning brief — {today}"
+    print(f"[morning_brief] loop done text_len={len(text)}")
 
     return ProactiveResult(
         text=text,
