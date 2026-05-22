@@ -184,9 +184,12 @@ async def proactive_trigger(body: TriggerBody, user: dict = Depends(get_current_
     db = get_admin_db()
     tz_res = db.table("users").select("timezone").eq("id", user["sub"]).maybe_single().execute()
     user_tz = (tz_res.data or {}).get("timezone") or "UTC"
-    result = await run_job(user["sub"], body.job_type, body.context_key, user_tz=user_tz)
+    try:
+        result = await run_job(user["sub"], body.job_type, body.context_key, user_tz=user_tz)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Job failed terminally: {exc}") from exc
     if result is None:
-        raise HTTPException(status_code=409, detail="Job skipped (dedupe, locked, or terminal failure)")
+        raise HTTPException(status_code=409, detail="Job skipped (dedupe, locked, or already failed)")
     return {
         "ok": True,
         "text": result.text,

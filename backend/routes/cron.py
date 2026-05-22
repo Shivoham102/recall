@@ -61,11 +61,15 @@ async def _run_job_for_all_users(job_type: str, context_key: str | None = None) 
     users = [r for r in all_users if _is_active(r)]
     ran, skipped, failed = 0, 0, 0
     for row in users:
-        result = await run_job(row["id"], job_type, context_key, user_tz=row.get("timezone") or "UTC")
-        if result is None:
-            skipped += 1
-        else:
-            ran += 1
+        try:
+            result = await run_job(row["id"], job_type, context_key, user_tz=row.get("timezone") or "UTC")
+            if result is None:
+                skipped += 1
+            else:
+                ran += 1
+        except Exception as exc:
+            failed += 1
+            print(f"[cron] {job_type} failed for user {row['id']}: {exc}")
     return {"ran": ran, "skipped": skipped, "failed": failed, "total_users": len(all_users), "inactive_skipped": len(all_users) - len(users)}
 
 
@@ -90,6 +94,18 @@ async def email_triage_job(
     if not _is_authorized(request, authorization, x_cron_secret):
         raise HTTPException(status_code=401, detail="Unauthorized cron request")
     result = await _run_job_for_all_users("email_triage")
+    return {"ok": True, **result}
+
+
+@router.get("/jobs/follow-up-draft")
+async def follow_up_draft_job(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_cron_secret: str | None = Header(default=None),
+):
+    if not _is_authorized(request, authorization, x_cron_secret):
+        raise HTTPException(status_code=401, detail="Unauthorized cron request")
+    result = await _run_job_for_all_users("follow_up_draft")
     return {"ok": True, **result}
 
 

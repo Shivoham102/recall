@@ -28,6 +28,7 @@ _DEDUPE_WINDOWS: dict[str, timedelta] = {
     "pattern_learn": timedelta(days=1),   # overridden by _CALENDAR_DAY_JOBS
     "email_triage": timedelta(minutes=90),
     "follow_up_scan": timedelta(minutes=50),
+    "follow_up_draft": timedelta(hours=20),
 }
 
 MAX_RETRIES = 3
@@ -163,7 +164,10 @@ async def run_job(
             if new_retries >= MAX_RETRIES:
                 update["status"] = "failed"
                 update["finished_at"] = now.isoformat()
+            terminal = new_retries >= MAX_RETRIES
             db.table("proactive_jobs").update(update).eq("id", job_id).execute()
+            if terminal:
+                raise  # only surface terminal failures; retryable ones return None
             return None
 
         finally:

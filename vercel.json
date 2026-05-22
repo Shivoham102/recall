@@ -1,9 +1,9 @@
 {
   "crons": [
-    { "path": "/jobs/refresh-email-style-profiles", "schedule": "0 8 * * 0" },
-    { "path": "/jobs/morning-brief",                "schedule": "0 7 * * *" },
-    { "path": "/jobs/follow-up-scan",               "schedule": "0 15 * * *" },
-    { "path": "/jobs/pattern-learn",                "schedule": "0 2 * * *" }
+    { "path": "/jobs/follow-up-draft",  "schedule": "0 6 * * *" },
+    { "path": "/jobs/morning-brief",    "schedule": "0 7 * * *" },
+    { "path": "/jobs/follow-up-scan",   "schedule": "0 15 * * *" },
+    { "path": "/jobs/pattern-learn",    "schedule": "0 2 * * *" }
   ],
   "builds": [
     { "src": "web/package.json",  "use": "@vercel/next"   },

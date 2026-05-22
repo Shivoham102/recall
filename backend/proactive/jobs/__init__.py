@@ -15,4 +15,7 @@ def get_job_fn(job_type: str) -> Callable[..., Awaitable[ProactiveResult]]:
     if job_type == "pattern_learn":
         from proactive.jobs.pattern_learn import run
         return run
+    if job_type == "follow_up_draft":
+        from proactive.jobs.follow_up_draft import run
+        return run
     raise ValueError(f"Unknown job_type: {job_type!r}")

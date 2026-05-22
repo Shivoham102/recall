@@ -15,6 +15,7 @@ const TASK_TYPE_COLOR: Record<string, string> = {
   blocker: "#ff4466",
   task: "#00e5ff",
   follow_up: "#ff9900",
+  follow_up_draft: "#e06c00",
   progress: "#00ff88",
   note: "#9988ff",
 };
@@ -23,6 +24,7 @@ const INTENT_COLORS: Record<string, string> = {
   task: "#00e5ff",
   blocker: "#ff4466",
   follow_up: "#ff9900",
+  follow_up_draft: "#e06c00",
   progress: "#00ff88",
   note: "#9988ff",
   query: "#aaaaaa",
@@ -33,6 +35,7 @@ const PROACTIVE_BADGE_LABELS: Record<string, string> = {
   morning_brief: "MORNING BRIEF",
   email_triage: "EMAIL TRIAGE",
   follow_up_scan: "FOLLOW-UP",
+  follow_up_draft: "DRAFT READY",
   pattern_learn: "PATTERN",
 };
 

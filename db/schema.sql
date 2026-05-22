@@ -160,13 +160,32 @@ CREATE TABLE IF NOT EXISTS follow_up_threads (
   due_at          timestamptz,
   nudge_count     int         NOT NULL DEFAULT 0,
   last_nudged_at  timestamptz,
-  status          text        NOT NULL DEFAULT 'open',
-  source          text        NOT NULL DEFAULT 'email',
-  recall_item_id  uuid        REFERENCES recall_items(id)
+  status            text        NOT NULL DEFAULT 'open',
+  source            text        NOT NULL DEFAULT 'email',
+  recall_item_id    uuid        REFERENCES recall_items(id),
+  last_user_sent_at timestamptz,
+  draft_gmail_id    text,
+  trigger_type      text        NOT NULL DEFAULT 'sent_commitment'
+  -- trigger_type: 'sent_commitment' | 'inbox_awaiting_reply'
 );
 
 CREATE INDEX IF NOT EXISTS follow_up_threads_user_status_idx
   ON follow_up_threads (user_id, status, due_at);
+
+-- draft_created_at: set when Gmail draft is created; cleared when draft is deleted/sent.
+-- Replaces last_nudged_at as the morning brief filter to avoid false positives from nudge-only updates.
+ALTER TABLE follow_up_threads
+  ADD COLUMN IF NOT EXISTS draft_created_at timestamptz;
+
+-- Partial index for _check_draft_validity query (only rows with a live draft)
+CREATE INDEX IF NOT EXISTS follow_up_threads_draft_id_idx
+  ON follow_up_threads (user_id, status, draft_gmail_id)
+  WHERE draft_gmail_id IS NOT NULL;
+
+-- Prevent double-insert of same thread when scan runs concurrently (thread_id NULLs are excluded)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_follow_up_user_thread_open
+  ON follow_up_threads (user_id, thread_id)
+  WHERE status = 'open' AND thread_id IS NOT NULL;
 
 -- ── User behavior patterns ────────────────────────────────────────────────────
 -- Stores repeated query patterns extracted by the nightly pattern_learn job.

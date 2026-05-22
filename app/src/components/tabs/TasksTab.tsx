@@ -3,13 +3,14 @@ import { getItems, updateItem, RecallItem } from "../../services/api";
 import { TabLoading } from "../TabLoading";
 import { formatDue } from "../../utils/dateFormat";
 
-const TYPE_ORDER = ["blocker", "task", "follow_up", "progress", "note"];
+const TYPE_ORDER = ["blocker", "task", "follow_up", "follow_up_draft", "progress", "note"];
 const TYPE_COLOR: Record<string, string> = {
-  blocker:   "#ff4466",
-  task:      "#00e5ff",
-  follow_up: "#ff9900",
-  progress:  "#00ff88",
-  note:      "#9988ff",
+  blocker:        "#ff4466",
+  task:           "#00e5ff",
+  follow_up:      "#ff9900",
+  follow_up_draft: "#e06c00",
+  progress:       "#00ff88",
+  note:           "#9988ff",
 };
 
 export function TasksTab() {

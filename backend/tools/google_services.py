@@ -292,9 +292,12 @@ def _make_reply_message(
     subject: str = "",
     in_reply_to: str = "",
     references: str = "",
+    cc: str = "",
 ) -> dict:
     msg = MIMEText(body)
     msg["to"] = to
+    if cc:
+        msg["Cc"] = cc
     if subject:
         msg["subject"] = subject
     if in_reply_to:
@@ -804,14 +807,18 @@ async def gmail_get_thread_context(inp: dict) -> dict:
         }
 
     data = await asyncio.to_thread(_fetch)
+    latest_id = data["latest_message_id"]
+    ref_parts = data["latest_references"].split() if data["latest_references"] else []
+    if latest_id and latest_id not in ref_parts:
+        ref_parts.append(latest_id)
     return {
         "summary": "Loaded thread context for follow-up drafting",
         "thread_id": thread_id,
         "context_summary": data["summary"],
         "recent_messages": data["messages"],
-        "latest_message_id": data["latest_message_id"],
-        "in_reply_to": data["latest_in_reply_to"],
-        "references": data["latest_references"],
+        "latest_message_id": latest_id,
+        "in_reply_to": latest_id,
+        "references": " ".join(ref_parts),
     }
 
 
@@ -926,6 +933,7 @@ async def gmail_reply_draft(inp: dict) -> dict:
     body = inp["body"]
     in_reply_to = inp.get("in_reply_to", "")
     references = inp.get("references", "")
+    cc = inp.get("cc", "")
 
     user_id = context.current_user_id.get("")
     draft_preferences = context.current_draft_preferences.get({})
@@ -955,7 +963,7 @@ async def gmail_reply_draft(inp: dict) -> dict:
         svc = _gmail_service()
         draft = svc.users().drafts().create(
             userId="me",
-            body={"message": _make_reply_message(to, body, thread_id, subject, in_reply_to, references)},
+            body={"message": _make_reply_message(to, body, thread_id, subject, in_reply_to, references, cc)},
         ).execute()
         return draft["id"]
 
