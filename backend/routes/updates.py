@@ -88,7 +88,7 @@ async def check_update(target: str, arch: str, current_version: str):
     if not installer_url or not sig_url:
         return Response(status_code=204)
 
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
         sig_resp = await client.get(sig_url, headers=_github_headers())
         if sig_resp.status_code != 200:
             return Response(status_code=204)
