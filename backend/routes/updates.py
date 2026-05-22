@@ -39,7 +39,11 @@ def _parse_version(tag: str) -> tuple[int, ...]:
 
 
 def _github_headers() -> dict:
-    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "recall-updater/1.0",
+    }
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
