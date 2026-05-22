@@ -93,11 +93,13 @@ pub fn run() {
             // Background update check on startup
             let update_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Ok(Some(update)) = update_handle.updater().check().await {
-                    let version = update.version.clone();
-                    let _ = update_handle.emit("update-available", &version);
-                    if let Ok(()) = update.download_and_install(|_, _| {}, || {}).await {
-                        let _ = update_handle.emit("update-ready", &version);
+                if let Ok(updater) = update_handle.updater() {
+                    if let Ok(Some(update)) = updater.check().await {
+                        let version = update.version.clone();
+                        let _ = update_handle.emit("update-available", &version);
+                        if let Ok(()) = update.download_and_install(|_, _| {}, || {}).await {
+                            let _ = update_handle.emit("update-ready", &version);
+                        }
                     }
                 }
             });
@@ -146,7 +148,8 @@ pub fn run() {
                     "update" => {
                         let app = app.clone();
                         tauri::async_runtime::spawn(async move {
-                            match app.updater().check().await {
+                            let Ok(updater) = app.updater() else { return };
+                            match updater.check().await {
                                 Ok(Some(update)) => {
                                     let version = update.version.clone();
                                     let _ = app.emit("update-available", &version);
