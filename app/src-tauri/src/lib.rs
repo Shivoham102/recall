@@ -97,9 +97,21 @@ pub fn run() {
                     if let Ok(Some(update)) = updater.check().await {
                         let version = update.version.clone();
                         let _ = update_handle.emit("update-available", &version);
-                        if let Ok(()) = update.download_and_install(|_, _| {}, || {}).await {
-                            let _ = update_handle.emit("update-ready", &version);
-                        }
+                        let h_chunk = update_handle.clone();
+                        let h_done  = update_handle.clone();
+                        let downloaded = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+                        let dl = downloaded.clone();
+                        let _ = update.download_and_install(
+                            move |chunk_size: usize, total_size: Option<u64>| {
+                                let so_far = dl.fetch_add(chunk_size as u64, std::sync::atomic::Ordering::Relaxed)
+                                    + chunk_size as u64;
+                                let _ = h_chunk.emit(
+                                    "update-progress",
+                                    serde_json::json!({ "downloaded": so_far, "total": total_size.unwrap_or(0) }),
+                                );
+                            },
+                            move || { let _ = h_done.emit("update-download-done", ()); },
+                        ).await;
                     }
                 }
             });
@@ -153,9 +165,21 @@ pub fn run() {
                                 Ok(Some(update)) => {
                                     let version = update.version.clone();
                                     let _ = app.emit("update-available", &version);
-                                    if let Ok(()) = update.download_and_install(|_, _| {}, || {}).await {
-                                        let _ = app.emit("update-ready", &version);
-                                    }
+                                    let h_chunk = app.clone();
+                                    let h_done  = app.clone();
+                                    let downloaded = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+                                    let dl = downloaded.clone();
+                                    let _ = update.download_and_install(
+                                        move |chunk_size: usize, total_size: Option<u64>| {
+                                            let so_far = dl.fetch_add(chunk_size as u64, std::sync::atomic::Ordering::Relaxed)
+                                                + chunk_size as u64;
+                                            let _ = h_chunk.emit(
+                                                "update-progress",
+                                                serde_json::json!({ "downloaded": so_far, "total": total_size.unwrap_or(0) }),
+                                            );
+                                        },
+                                        move || { let _ = h_done.emit("update-download-done", ()); },
+                                    ).await;
                                 }
                                 Ok(None) => {
                                     let _ = app.emit("update-not-found", ());
