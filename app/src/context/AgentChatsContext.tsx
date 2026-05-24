@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { emit } from "@tauri-apps/api/event";
 import { supabase } from "../services/supabase";
 import { connectProactiveStream, suggestAgentChatTitle } from "../services/api";
 import { AgentChat, AgentTurn, CalendarCard, EmailCard, TaskCard } from "../types/agentTurn";
@@ -332,10 +333,23 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
           calendarCards: event.result.calendar_cards as CalendarCard[],
           taskCards: event.result.task_cards as TaskCard[],
           timestamp: event.timestamp,
+          audioB64: event.audio_b64 ?? undefined,
         };
         replaceChatTurns(chatId, (prev) => [...prev, newTurn]);
         setProactiveUnread(true);
         try { localStorage.setItem("recall_proactive_unread", "1"); } catch { /* ignore */ }
+        if (event.job_type === "morning_brief" && event.audio_b64) {
+          const age = Date.now() - new Date(event.timestamp).getTime();
+          if (age < 5 * 60 * 1000) {
+            const ssKey = `recall_brief_announced_${event.id}`;
+            if (!sessionStorage.getItem(ssKey)) {
+              sessionStorage.setItem(ssKey, "1");
+              requestAnimationFrame(() => {
+                void emit("recall:proactive-ready", { audio_b64: event.audio_b64 });
+              });
+            }
+          }
+        }
       }
     });
     return cancel;

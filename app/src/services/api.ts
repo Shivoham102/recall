@@ -262,7 +262,7 @@ export interface ProactiveJobResult {
 
 export type ProactiveStreamEvent =
   | { type: "connected"; proactive_chat_id: string }
-  | { type: "proactive_job"; id: string; job_type: string; result: ProactiveJobResult; proactive_chat_id: string; timestamp: string }
+  | { type: "proactive_job"; id: string; job_type: string; result: ProactiveJobResult; audio_b64?: string | null; proactive_chat_id: string; timestamp: string }
   | { type: "heartbeat" }
   | { type: "error"; message: string };
 

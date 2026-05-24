@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from auth import get_current_user
 from db import get_admin_db
 from proactive.runner import run_job
+from tts import synthesize
 
 router = APIRouter()
 
@@ -137,11 +138,18 @@ async def proactive_stream(
                     jobs = await asyncio.to_thread(_fetch_undelivered, user_id, seen_ids)
                     for job in jobs:
                         seen_ids.add(job["id"])
+                        audio_b64 = None
+                        if job["job_type"] == "morning_brief":
+                            try:
+                                audio_b64 = await synthesize("Your morning brief is ready.")
+                            except Exception as tts_exc:
+                                print(f"[proactive_stream] TTS failed: {tts_exc}")
                         yield _sse({
                             "type": "proactive_job",
                             "id": job["id"],
                             "job_type": job["job_type"],
                             "result": job["result"] or {},
+                            "audio_b64": audio_b64,
                             "proactive_chat_id": chat_id,
                             "timestamp": job["started_at"],
                         })

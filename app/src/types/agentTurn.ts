@@ -49,6 +49,8 @@ export interface AgentTurn {
   pending?: boolean;
   /** ISO timestamp for proactive turns */
   timestamp?: string;
+  /** Base64 MP3 for morning_brief TTS announcement; present only when TTS succeeded */
+  audioB64?: string;
 }
 
 export interface LastCaptureMeta {

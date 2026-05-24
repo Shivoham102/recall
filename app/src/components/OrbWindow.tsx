@@ -1,13 +1,27 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, Window } from "@tauri-apps/api/window";
 import { useRecorder } from "../hooks/useRecorder";
 import { captureStream, playAudio, getOrCreateSessionId } from "../services/api";
 import { scheduleReminder } from "../services/reminderScheduler";
 import { applyItemUpdatedTimer } from "../services/itemUpdatedTimer";
 
 const HOTKEY = "Ctrl+Shift+Space";
+
+async function isMainForeground(): Promise<boolean> {
+  try {
+    const mainWin = await Window.getByLabel("main");
+    if (!mainWin) return false;
+    const [visible, minimized] = await Promise.all([
+      mainWin.isVisible(),
+      mainWin.isMinimized(),
+    ]);
+    return visible && !minimized;
+  } catch {
+    return false; // safe fallback: show orb
+  }
+}
 
 export function OrbWindow() {
   const recorder = useRecorder();
@@ -104,18 +118,30 @@ export function OrbWindow() {
     return () => { unregister(HOTKEY).catch(() => {}); };
   }, []);
 
+  const playProactiveAudio = useCallback(async (b64: string) => {
+    if (recorder.state !== "idle") return;
+    recorder.setSpeaking();
+    const foreground = await isMainForeground();
+    if (!foreground) await appWindow.show();
+    playAudio(b64, async () => {
+      recorder.reset();
+      if (!foreground) await appWindow.hide();
+    });
+  }, [recorder, appWindow]);
+
   useEffect(() => {
     const unlisten = listen<{ audio_base64: string }>("recall:reminder", async (e) => {
-      if (recorder.state !== "idle") return;
-      recorder.setSpeaking();
-      await appWindow.show();
-      playAudio(e.payload.audio_base64, async () => {
-        recorder.reset();
-        await appWindow.hide();
-      });
+      await playProactiveAudio(e.payload.audio_base64);
     });
     return () => { unlisten.then((f) => f()); };
-  }, [recorder, appWindow]);
+  }, [playProactiveAudio]);
+
+  useEffect(() => {
+    const unlisten = listen<{ audio_b64: string }>("recall:proactive-ready", async (e) => {
+      await playProactiveAudio(e.payload.audio_b64);
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, [playProactiveAudio]);
 
   const orbState = error ? "error" : recorder.state;
 
