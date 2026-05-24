@@ -120,18 +120,30 @@ def _get_thread_draft_meta(svc, thread_id: str) -> dict:
     return {"in_reply_to": "", "references": "", "cc": "", "to": "", "subject": "", "context_summary": ""}
 
 
-def _get_display_name(svc) -> str:
-    """Fetch primary sendAs display name to use as email sign-off."""
+def _get_display_name(svc, user_id: str = "") -> str:
+    """Fetch display name for email sign-off. Gmail sendAs primary → DB users.name fallback."""
     try:
         aliases = svc.users().settings().sendAs().list(userId="me").execute()
         for alias in aliases.get("sendAs", []):
             if alias.get("isPrimary"):
-                return alias.get("displayName", "")
+                name = alias.get("displayName", "")
+                if name:
+                    return name
         send_as_list = aliases.get("sendAs", [])
         if send_as_list:
-            return send_as_list[0].get("displayName", "")
+            name = send_as_list[0].get("displayName", "")
+            if name:
+                return name
     except Exception as exc:
-        print(f"[follow_up_draft] _get_display_name error: {exc}")
+        print(f"[follow_up_draft] _get_display_name sendAs error: {exc}")
+    if user_id:
+        try:
+            row = get_admin_db().table("users").select("name").eq("id", user_id).single().execute()
+            name = (row.data or {}).get("name", "")
+            if name:
+                return name
+        except Exception as exc:
+            print(f"[follow_up_draft] _get_display_name DB fallback error: {exc}")
     return ""
 
 
@@ -150,16 +162,21 @@ async def _haiku_draft(
     import os  # noqa: PLC0415
     sign_off = f"{closing},\n{display_name}" if display_name else f"{closing},"
     client = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    author = display_name or "the user"
+    cp_first = counterparty.split()[0] if counterparty else counterparty
     resp = await client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=300,
         messages=[{"role": "user", "content":
+            f"You are ghostwriting an email for {author}.\n"
+            f"In the thread context below, messages labeled USER are written BY {author} — "
+            f"they are the sender, not the recipient.\n"
+            f"Background on {author}: {memory_context or 'none'}\n"
             f"Write a follow-up email body to {counterparty}.\n"
             f"Thread context: {context_summary}\n"
             f"Original commitment/request: {commitment}\n"
-            f"User context: {memory_context or 'none'}\n"
             f"Style: {formality} tone, ~{avg_words} words/sentence, "
-            f"open with '{greeting}'\n"
+            f"open with '{greeting} {cp_first},' (use the recipient's first name)\n"
             f"Rules: 2-4 sentences, no em dashes, do not identify as AI, "
             f"reference the specific commitment or ask from the thread. "
             f"End with exactly: {sign_off}"}],
@@ -215,7 +232,7 @@ async def _run_draft_phase(
     greeting = (style_feats.get("greeting_patterns") or ["Hi"])[0]
     closing = (style_feats.get("closing_patterns") or ["Thanks"])[0]
 
-    display_name = await asyncio.to_thread(_get_display_name, svc)
+    display_name = await asyncio.to_thread(_get_display_name, svc, user_id)
     print(f"[follow_up_draft] display_name={display_name!r}")
 
     # Pre-filter: skip noise candidates before hitting Gmail/Haiku APIs

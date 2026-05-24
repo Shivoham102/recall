@@ -26,7 +26,7 @@ _STYLE_STALE_DAYS = 8
 _GREETING_RE = re.compile(r"^\s*(hi|hello|hey|dear)\b[^\n]{0,100}", re.IGNORECASE)
 _FORMAL_WORDS = {"regards", "sincerely", "appreciate", "pleased", "kindly", "thank you"}
 _CASUAL_WORDS = {"hey", "thanks", "quick", "awesome", "yep", "no worries"}
-_CLOSING_CANDIDATES = ("thanks", "thank you", "best", "regards", "cheers", "sincerely")
+_CLOSING_CANDIDATES = ("thank you", "thanks", "best", "regards", "cheers", "sincerely")
 _STOP_WORDS = {
     "a", "an", "the", "to", "for", "and", "or", "but", "with", "on", "in", "at", "of", "by",
     "is", "it", "this", "that", "these", "those", "be", "am", "are", "was", "were", "as",
@@ -87,8 +87,9 @@ def _extract_closing(text: str) -> str:
     tail = [ln.strip() for ln in text.splitlines()[-6:] if ln.strip()]
     for line in reversed(tail):
         lowered = line.lower()
-        if any(token in lowered for token in _CLOSING_CANDIDATES):
-            return line
+        for token in _CLOSING_CANDIDATES:  # longer tokens first ("thank you" before "thanks")
+            if token in lowered:
+                return token.capitalize()
     return ""
 
 
@@ -118,7 +119,7 @@ def _build_style_features(samples: list[str]) -> dict:
 
         greeting_match = _GREETING_RE.search(body)
         if greeting_match:
-            greetings.append(greeting_match.group(0).strip())
+            greetings.append(greeting_match.group(1).capitalize())  # keyword only, not "Hi Richard,"
 
         closing = _extract_closing(body)
         if closing:
@@ -277,8 +278,14 @@ def _render_style_guidance(style_features: dict) -> str:
     )
 
 
+def _plain_to_html(text: str) -> str:
+    escaped = html.escape(text)
+    paragraphs = re.split(r"\n{2,}", escaped)
+    return "".join(f"<p>{p.replace(chr(10), '<br>')}</p>" for p in paragraphs if p.strip())
+
+
 def _make_message(to: str, subject: str, body: str) -> dict:
-    msg = MIMEText(body)
+    msg = MIMEText(_plain_to_html(body), "html")
     msg["to"] = to
     msg["subject"] = subject
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
@@ -294,7 +301,7 @@ def _make_reply_message(
     references: str = "",
     cc: str = "",
 ) -> dict:
-    msg = MIMEText(body)
+    msg = MIMEText(_plain_to_html(body), "html")
     msg["to"] = to
     if cc:
         msg["Cc"] = cc
