@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { captureStream, playAudio, getItems, RecallItem } from "../../services/api";
@@ -257,6 +257,13 @@ export function AgentTab() {
   const suppressEdgePeekRef = useRef(false);
   const recorder = useRecorder();
 
+  const prevChatIdRef = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (prevChatIdRef.current !== activeChatId) {
+      prevChatIdRef.current = activeChatId;
+      bottomRef.current?.scrollIntoView({ behavior: "instant" });
+    }
+  }, [activeChatId]);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeChat?.turns]);

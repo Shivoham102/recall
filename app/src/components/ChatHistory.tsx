@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 export interface Turn {
   role: "user" | "assistant";
@@ -13,6 +13,9 @@ interface Props {
 export function ChatHistory({ turns }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  useLayoutEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "instant" });
+  }, []);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns]);

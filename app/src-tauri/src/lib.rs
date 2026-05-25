@@ -7,14 +7,82 @@ use tauri::{
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_shell::ShellExt;
-use tauri_plugin_updater::UpdaterExt;
+use tauri_plugin_updater::{Update, UpdaterExt};
 
 struct BackendProcess(Mutex<Option<CommandChild>>);
 struct BackendPort(Mutex<Option<u16>>);
+struct PendingUpdate(Mutex<Option<Update>>);
 
 #[tauri::command]
 fn get_backend_port(state: tauri::State<'_, BackendPort>) -> Option<u16> {
     *state.0.lock().unwrap()
+}
+
+#[tauri::command]
+async fn check_for_updates(app: tauri::AppHandle) -> Result<(), String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    match updater.check().await.map_err(|e| e.to_string())? {
+        Some(update) => {
+            let version = update.version.clone();
+            *app.state::<PendingUpdate>().0.lock().unwrap() = Some(update);
+            let _ = app.emit("update-available", version);
+        }
+        None => {
+            let _ = app.emit("update-not-found", ());
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn start_update(app: tauri::AppHandle) -> Result<(), String> {
+    let update = app.state::<PendingUpdate>().0.lock().unwrap().take();
+    let Some(update) = update else { return Ok(()); };
+    let h_chunk = app.clone();
+    let h_done  = app.clone();
+    let downloaded = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let dl = downloaded.clone();
+    let bytes = update.download(
+        move |chunk_size: usize, total_size: Option<u64>| {
+            let so_far = dl.fetch_add(chunk_size as u64, std::sync::atomic::Ordering::Relaxed)
+                + chunk_size as u64;
+            let _ = h_chunk.emit(
+                "update-progress",
+                serde_json::json!({ "downloaded": so_far, "total": total_size.unwrap_or(0) }),
+            );
+        },
+        move || { let _ = h_done.emit("update-download-done", ()); },
+    ).await.map_err(|e| e.to_string())?;
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    update.install(bytes).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn simulate_update_available(app: tauri::AppHandle) {
+    let _ = app.emit("update-available", "9.9.9");
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn simulate_no_update(app: tauri::AppHandle) {
+    let _ = app.emit("update-not-found", ());
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+async fn simulate_update(app: tauri::AppHandle) {
+    let _ = app.emit("update-available", "9.9.9");
+    for i in 1u64..=10 {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        let _ = app.emit(
+            "update-progress",
+            serde_json::json!({ "downloaded": i * 1_048_576, "total": 10_485_760u64 }),
+        );
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let _ = app.emit("update-download-done", ());
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -27,10 +95,16 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
-        .invoke_handler(tauri::generate_handler![get_backend_port])
+        .invoke_handler({
+            #[cfg(debug_assertions)]
+            { tauri::generate_handler![get_backend_port, check_for_updates, start_update, simulate_update_available, simulate_update, simulate_no_update] }
+            #[cfg(not(debug_assertions))]
+            { tauri::generate_handler![get_backend_port, check_for_updates, start_update] }
+        })
         .setup(|app| {
             let _ = app.deep_link().register_all();
             app.manage(BackendPort(Mutex::new(None)));
+            app.manage(PendingUpdate(Mutex::new(None)));
             let port_state = app.handle().clone();
 
             if let Ok(sidecar) = app.shell().sidecar("recall-backend") {
@@ -90,37 +164,30 @@ pub fn run() {
                 });
             }
 
-            // Background update check on startup
+            // Background update check: runs on startup then every 6 hours
             let update_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Ok(updater) = update_handle.updater() {
-                    if let Ok(Some(update)) = updater.check().await {
-                        let version = update.version.clone();
-                        let _ = update_handle.emit("update-available", &version);
-                        let h_chunk = update_handle.clone();
-                        let h_done  = update_handle.clone();
-                        let downloaded = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-                        let dl = downloaded.clone();
-                        let _ = update.download_and_install(
-                            move |chunk_size: usize, total_size: Option<u64>| {
-                                let so_far = dl.fetch_add(chunk_size as u64, std::sync::atomic::Ordering::Relaxed)
-                                    + chunk_size as u64;
-                                let _ = h_chunk.emit(
-                                    "update-progress",
-                                    serde_json::json!({ "downloaded": so_far, "total": total_size.unwrap_or(0) }),
-                                );
-                            },
-                            move || { let _ = h_done.emit("update-download-done", ()); },
-                        ).await;
+                loop {
+                    if let Ok(updater) = update_handle.updater() {
+                        if let Ok(Some(update)) = updater.check().await {
+                            let version = update.version.clone();
+                            let pending_state = update_handle.state::<PendingUpdate>();
+                            let mut pending = pending_state.0.lock().unwrap();
+                            if pending.is_none() {
+                                *pending = Some(update);
+                                drop(pending);
+                                let _ = update_handle.emit("update-available", version);
+                            }
+                        }
                     }
+                    tokio::time::sleep(std::time::Duration::from_secs(6 * 60 * 60)).await;
                 }
             });
 
             // System tray
             let show = MenuItem::with_id(app, "show", "Show Recall", true, None::<&str>)?;
-            let check_update = MenuItem::with_id(app, "update", "Check for updates", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &check_update, &quit])?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
 
             let icon = app
                 .default_window_icon()
@@ -156,39 +223,6 @@ pub fn run() {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
-                    }
-                    "update" => {
-                        let app = app.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let Ok(updater) = app.updater() else { return };
-                            match updater.check().await {
-                                Ok(Some(update)) => {
-                                    let version = update.version.clone();
-                                    let _ = app.emit("update-available", &version);
-                                    let h_chunk = app.clone();
-                                    let h_done  = app.clone();
-                                    let downloaded = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-                                    let dl = downloaded.clone();
-                                    let _ = update.download_and_install(
-                                        move |chunk_size: usize, total_size: Option<u64>| {
-                                            let so_far = dl.fetch_add(chunk_size as u64, std::sync::atomic::Ordering::Relaxed)
-                                                + chunk_size as u64;
-                                            let _ = h_chunk.emit(
-                                                "update-progress",
-                                                serde_json::json!({ "downloaded": so_far, "total": total_size.unwrap_or(0) }),
-                                            );
-                                        },
-                                        move || { let _ = h_done.emit("update-download-done", ()); },
-                                    ).await;
-                                }
-                                Ok(None) => {
-                                    let _ = app.emit("update-not-found", ());
-                                }
-                                Err(e) => {
-                                    eprintln!("Update check error: {e}");
-                                }
-                            }
-                        });
                     }
                     "quit" => {
                         if let Some(child) =

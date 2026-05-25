@@ -68,7 +68,7 @@ export function LoginScreen({ onLogin }: Props) {
 
         if (!accessToken || !refreshToken) {
           setStatus("error");
-          setErrorMsg("OAuth callback missing tokens — try again.");
+          setErrorMsg("OAuth callback missing tokens. Try again.");
           return;
         }
 

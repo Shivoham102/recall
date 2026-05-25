@@ -51,7 +51,7 @@ export function ProfileTab({ user, onLogout }: Props) {
         <div className="profile-stat-row">
           <span className="profile-stat__key">Open items</span>
           <span className="profile-stat__val">
-            {itemCount === null ? "—" : itemCount}
+            {itemCount === null ? "-" : itemCount}
           </span>
         </div>
       </div>
@@ -90,7 +90,7 @@ export function ProfileTab({ user, onLogout }: Props) {
           {patterns.length === 0 ? (
             <div className="profile-stat-row">
               <span className="profile-stat__key profile-stat__key--muted">
-                Keep using Recall — patterns appear after a few sessions.
+                Keep using Recall. Patterns appear after a few sessions.
               </span>
             </div>
           ) : (

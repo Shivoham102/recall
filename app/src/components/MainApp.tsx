@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { AgentTab } from "./tabs/AgentTab";
 import { TasksTab } from "./tabs/TasksTab";
 // TranscriptsTab is intentionally kept in the codebase for possible audit/debug use.
@@ -39,7 +40,9 @@ interface UpdateState {
 export function MainApp({ user, onLogout }: Props) {
   const [tab, setTab] = useState<Tab>("agent");
   const [updateOverlay, setUpdateOverlay] = useState<UpdateState | null>(null);
+  const [pendingUpdate, setPendingUpdate] = useState<string | null>(null);
   const [upToDate, setUpToDate] = useState(false);
+  const pendingVersionRef = useRef<string | null>(null);
   const appWindow = useRef(getCurrentWindow()).current;
 
   useEffect(() => {
@@ -64,14 +67,16 @@ export function MainApp({ user, onLogout }: Props) {
       const [u1, u2, u3, u4] = await Promise.all([
         listen<string>("update-available", (e) => {
           if (cancelled) return;
-          appWindow.show();
-          appWindow.setFocus();
-          setUpdateOverlay({ version: e.payload, downloadedBytes: 0, totalBytes: 0, installing: false });
+          pendingVersionRef.current = e.payload;
+          setPendingUpdate(e.payload);
         }),
         listen<{ downloaded: number; total: number }>("update-progress", (e) => {
           if (cancelled) return;
+          setPendingUpdate(null);
           setUpdateOverlay((prev) =>
-            prev ? { ...prev, downloadedBytes: e.payload.downloaded, totalBytes: e.payload.total } : prev
+            prev
+              ? { ...prev, downloadedBytes: e.payload.downloaded, totalBytes: e.payload.total }
+              : { version: pendingVersionRef.current ?? "", downloadedBytes: e.payload.downloaded, totalBytes: e.payload.total, installing: false }
           );
         }),
         listen<void>("update-download-done", () => {
@@ -113,6 +118,23 @@ export function MainApp({ user, onLogout }: Props) {
             </button>
           ))}
         </div>
+        <button
+          className={`update-btn${pendingUpdate ? " update-btn--dot" : ""}`}
+          title={pendingUpdate ? `Update to v${pendingUpdate}` : "Check for updates"}
+          onClick={async () => {
+            if (pendingUpdate) {
+              setPendingUpdate(null);
+              await invoke("start_update");
+            } else if (!updateOverlay) {
+              await invoke("check_for_updates");
+            }
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M7 11V3M7 3L4 6M7 3L10 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M2 12H12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </button>
         <div className="titlebar__controls">
           <button className="wm-btn" onClick={() => appWindow.minimize()} title="Minimize">─</button>
           <button className="wm-btn" onClick={() => appWindow.toggleMaximize()} title="Maximize">⬜</button>
