@@ -7,12 +7,17 @@ export type StreamEvent =
   | { type: "thinking"; text: string }
   | { type: "tool_call"; name: string; input: unknown }
   | { type: "tool_result"; name: string; summary: string; data: Record<string, unknown> }
+  | { type: "token"; text: string }
   | { type: "ack_audio"; audio_base64: string; text: string }
+  | { type: "ack_audio_chunk"; data: string }
+  | { type: "ack_audio_done"; text: string }
   | { type: "spoken"; text: string }
   | { type: "metadata"; intent_type: string; should_store: boolean; due_hint: string | null; reminder_text: string | null; awaiting_clarification: boolean }
   | { type: "stored"; item_id: string | null; due_at: string | null }
   | { type: "item_updated"; item_id: unknown; due_at: unknown }
   | { type: "audio"; audio_base64: string }
+  | { type: "audio_chunk"; data: string }
+  | { type: "audio_done" }
   | { type: "error"; message: string; }
   | { type: "done" };
 

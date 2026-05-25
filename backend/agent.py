@@ -160,14 +160,18 @@ async def run_agentic_loop(
     for iteration in range(MAX_AGENT_ITERATIONS):
         yield {"type": "thinking", "text": "Thinking..."}
 
-        response = await async_client.messages.create(
+        async with async_client.messages.stream(
             model="claude-sonnet-4-6",
             max_tokens=4096,
             system=SYSTEM_PROMPT_BLOCKS,
             tools=TOOL_DEFINITIONS,
             tool_choice={"type": "auto"},
             messages=history,
-        )
+        ) as stream:
+            async for text in stream.text_stream:
+                if text:
+                    yield {"type": "token", "text": text}
+            response = await stream.get_final_message()
 
         # Extract any text and classify_intent calls from this response
         tool_use_blocks: list[ToolUseBlock] = []

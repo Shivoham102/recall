@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { listen, emit } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { captureStream, playAudio, getItems, RecallItem } from "../../services/api";
+import { StreamingAudioPlayer } from "../../services/audioPlayer";
 import { formatDue } from "../../utils/dateFormat";
 import { useRecorder } from "../../hooks/useRecorder";
 import { TabLoading } from "../TabLoading";
@@ -237,6 +238,8 @@ export function AgentTab() {
   const [liveItems, setLiveItems] = useState<Map<string, RecallItem>>(new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const currentAckPlayerRef = useRef<StreamingAudioPlayer | null>(null);
+  const currentFinalPlayerRef = useRef<StreamingAudioPlayer | null>(null);
 
   const refreshLiveItems = useCallback(async () => {
     try {
@@ -303,9 +306,15 @@ export function AgentTab() {
     const userTurnId = crypto.randomUUID();
     const assistantTurnId = crypto.randomUUID();
 
+    // Abort any players from a prior incomplete request
+    currentAckPlayerRef.current?.abort();
+    currentFinalPlayerRef.current?.abort();
+    currentAckPlayerRef.current = null;
+    currentFinalPlayerRef.current = null;
+
     replaceChatTurns(chatId, (prev) => [
       ...prev,
-      { id: userTurnId, role: "user", text: "" },
+      { id: userTurnId, role: "user", text: "", pending: true },
       { id: assistantTurnId, role: "assistant", text: "", steps: [], pending: true },
     ]);
 
@@ -313,18 +322,23 @@ export function AgentTab() {
     try {
       let transcript = "";
       let spokenText = "";
+      let streamingText = "";
       let intentType: string | undefined;
       let awaitingClarification = false;
       let itemId: string | null = null;
       let dueAt: string | null = null;
-      let audiob64 = "";
+      let ackPlayer: StreamingAudioPlayer | null = null;
+      let finalPlayer: StreamingAudioPlayer | null = null;
 
       recorder.setSpeaking();
 
       for await (const event of captureStream(blob, activeSessionId)) {
         if (event.type === "transcript") {
           transcript = event.text;
-          patchTurnInChat(chatId, userTurnId, { text: transcript });
+          patchTurnInChat(chatId, userTurnId, { text: transcript, pending: false });
+        } else if (event.type === "token") {
+          streamingText += event.text;
+          patchTurnInChat(chatId, assistantTurnId, { text: streamingText });
         } else if (event.type === "tool_call") {
           const call = { name: event.name, summary: "", pending: true };
           replaceChatTurns(chatId, (prev) =>
@@ -359,8 +373,19 @@ export function AgentTab() {
           );
         } else if (event.type === "ack_audio") {
           playAudio(event.audio_base64);
+        } else if (event.type === "ack_audio_chunk") {
+          if (!ackPlayer) {
+            ackPlayer = new StreamingAudioPlayer();
+            currentAckPlayerRef.current = ackPlayer;
+          }
+          ackPlayer.append(event.data);
+        } else if (event.type === "ack_audio_done") {
+          ackPlayer?.done();
+          ackPlayer = null;
+          currentAckPlayerRef.current = null;
         } else if (event.type === "spoken") {
           spokenText = event.text;
+          streamingText = "";
           patchTurnInChat(chatId, assistantTurnId, { text: spokenText });
         } else if (event.type === "metadata") {
           intentType = event.intent_type;
@@ -372,29 +397,37 @@ export function AgentTab() {
         } else if (event.type === "item_updated") {
           applyItemUpdatedTimer(event.item_id, event.due_at, "AgentTab");
         } else if (event.type === "audio") {
-          audiob64 = event.audio_base64;
+          // Legacy batch audio path — kept for backward compat
+          playAudio(event.audio_base64, () => {
+            if (awaitingClarification) {
+              recorder.reset();
+              recorder.start().catch(() => {});
+            } else {
+              recorder.reset();
+            }
+          });
+        } else if (event.type === "audio_chunk") {
+          if (!finalPlayer) {
+            finalPlayer = new StreamingAudioPlayer(() => {
+              currentFinalPlayerRef.current = null;
+              if (awaitingClarification) {
+                recorder.reset();
+                recorder.start().catch(() => {});
+              } else {
+                recorder.reset();
+              }
+            });
+            currentFinalPlayerRef.current = finalPlayer;
+          }
+          finalPlayer.append(event.data);
+        } else if (event.type === "audio_done") {
+          finalPlayer?.done();
         } else if (event.type === "error") {
           patchTurnInChat(chatId, assistantTurnId, { text: event.message, pending: false });
         } else if (event.type === "done") {
           doneHandled = true;
           patchTurnInChat(chatId, assistantTurnId, { pending: false });
-          if (awaitingClarification) {
-            // Agent asked a clarifying question — auto-arm mic for follow-up
-            if (audiob64) {
-              playAudio(audiob64, () => {
-                recorder.reset();
-                recorder.start().catch(() => {});
-              });
-            } else {
-              recorder.reset();
-              recorder.start().catch(() => {});
-            }
-          } else {
-            if (audiob64) {
-              playAudio(audiob64, () => recorder.reset());
-            } else {
-              recorder.reset();
-            }
+          if (!awaitingClarification) {
             if (dueAt && itemId) scheduleReminder(itemId, dueAt);
             await emit("recall:new-turn", {
               transcript,
@@ -405,6 +438,16 @@ export function AgentTab() {
             window.setTimeout(() => {
               void refreshChatTitleFromServer(chatId);
             }, 0);
+          }
+          // recorder.reset() lives in finalPlayer.onEnd for streaming audio path.
+          // If no audio was synthesized, reset/re-arm immediately.
+          if (!finalPlayer) {
+            if (awaitingClarification) {
+              recorder.reset();
+              recorder.start().catch(() => {});
+            } else {
+              recorder.reset();
+            }
           }
         }
       }
@@ -568,7 +611,10 @@ export function AgentTab() {
                   )
                 )}
                 {t.role !== "proactive" && t.steps && t.steps.length > 0 && <StepsGroup steps={t.steps} />}
-                {t.text && <p>{t.text}</p>}
+                {t.text
+                  ? <p>{t.text}</p>
+                  : (t.role === "user" && t.pending ? <p className="turn__recording">···</p> : null)
+                }
                 {t.emailCards && t.emailCards.length > 0 && <EmailCardGrid cards={t.emailCards} />}
                 {t.calendarCards && t.calendarCards.length > 0 && <CalendarCardGrid cards={t.calendarCards} />}
                 {t.taskCards && t.taskCards.length > 0 && <TaskCardGrid cards={t.taskCards} liveItems={liveItems} />}

@@ -5,7 +5,8 @@ from fastapi.responses import StreamingResponse
 from stt import transcribe
 from rag import retrieve_similar, store_item
 from agent import run_agentic_loop
-from tts import synthesize
+import base64
+from tts import synthesize, synthesize_stream
 from auth import get_current_user
 from db import get_admin_db
 from time_utils import parse_due_at, _is_valid_iana
@@ -103,11 +104,14 @@ async def capture_stream(
                 ):
                     if event["type"] == "ack":
                         try:
-                            ack_audio = await synthesize(event["text"])
-                            yield _sse({"type": "ack_audio", "audio_base64": ack_audio, "text": event["text"]})
+                            async for chunk in synthesize_stream(event["text"]):
+                                yield _sse({"type": "ack_audio_chunk", "data": base64.b64encode(chunk).decode()})
+                            yield _sse({"type": "ack_audio_done", "text": event["text"]})
                         except Exception as e:
                             print(f"[TTS] ack synthesis failed: {e}")
                             yield _sse({"type": "error", "message": f"TTS (ack) failed: {e}"})
+                    elif event["type"] == "token":
+                        yield _sse(event)
                     elif event["type"] == "spoken":
                         spoken = event["text"]
                         yield _sse({"type": "spoken", "text": spoken})
@@ -154,17 +158,20 @@ async def capture_stream(
                 "due_at": due_at,
             })
 
-            # Synthesize TTS last
+            # Synthesize TTS last — stream chunks; done is always emitted
             if spoken:
                 try:
-                    audio_b64 = await synthesize(spoken)
-                    yield _sse({"type": "audio", "audio_base64": audio_b64})
+                    async for chunk in synthesize_stream(spoken):
+                        yield _sse({"type": "audio_chunk", "data": base64.b64encode(chunk).decode()})
+                    yield _sse({"type": "audio_done"})
                 except Exception as e:
                     print(f"[TTS] final synthesis failed: {e}")
                     yield _sse({"type": "error", "message": f"TTS failed: {e}"})
 
             yield _sse({"type": "done"})
 
+        except GeneratorExit:
+            print("[agent_stream] client disconnected mid-stream")
         finally:
             context.current_user_id.reset(uid_tok)
             context.current_user_tz.reset(tz_tok)
