@@ -263,7 +263,7 @@ export function AgentTab() {
   const prevChatIdRef = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
     if (prevChatIdRef.current !== activeChatId) {
-      prevChatIdRef.current = activeChatId;
+      prevChatIdRef.current = activeChatId ?? undefined;
       bottomRef.current?.scrollIntoView({ behavior: "instant" });
     }
   }, [activeChatId]);
