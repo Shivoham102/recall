@@ -4,6 +4,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, Window } from "@tauri-apps/api/window";
 import { useRecorder } from "../hooks/useRecorder";
 import { captureStream, playAudio, getOrCreateSessionId } from "../services/api";
+import { StreamingAudioPlayer } from "../services/audioPlayer";
 import { scheduleReminder } from "../services/reminderScheduler";
 import { applyItemUpdatedTimer } from "../services/itemUpdatedTimer";
 
@@ -37,40 +38,72 @@ export function OrbWindow() {
       // Dedicated persistent voice session, intentionally isolated from AgentTab chats
       let transcript = "", responseText = "", intentType = "";
       let awaitingClarification = false;
-      let itemId: string | null = null, dueAt: string | null = null, audiob64 = "";
+      let itemId: string | null = null, dueAt: string | null = null;
+      let ackPlayer: StreamingAudioPlayer | null = null;
+      let finalPlayer: StreamingAudioPlayer | null = null;
+      let hasFinalAudio = false;
 
       for await (const event of captureStream(blob, sessionId)) {
-        if (event.type === "transcript")     transcript = event.text;
-        else if (event.type === "ack_audio") playAudio(event.audio_base64);
-        else if (event.type === "spoken")    responseText = event.text;
-        else if (event.type === "metadata") {
+        if (event.type === "transcript") {
+          transcript = event.text;
+        } else if (event.type === "ack_audio") {
+          playAudio(event.audio_base64);
+        } else if (event.type === "ack_audio_chunk") {
+          if (!ackPlayer) ackPlayer = new StreamingAudioPlayer();
+          ackPlayer.append(event.data);
+        } else if (event.type === "ack_audio_done") {
+          ackPlayer?.done();
+          ackPlayer = null;
+        } else if (event.type === "spoken") {
+          responseText = event.text;
+        } else if (event.type === "metadata") {
           intentType = event.intent_type;
           awaitingClarification = event.awaiting_clarification;
+        } else if (event.type === "stored") {
+          itemId = event.item_id;
+          dueAt = event.due_at;
+        } else if (event.type === "item_updated") {
+          applyItemUpdatedTimer(event.item_id, event.due_at, "OrbWindow");
+        } else if (event.type === "audio") {
+          hasFinalAudio = true;
+          if (!awaitingClarification) recorder.setSpeaking();
+          playAudio(event.audio_base64, async () => {
+            recorder.reset();
+            if (awaitingClarification) recorder.start().catch(() => {});
+            else await appWindow.hide();
+          });
+        } else if (event.type === "audio_chunk") {
+          hasFinalAudio = true;
+          if (!finalPlayer) {
+            if (!awaitingClarification) recorder.setSpeaking();
+            finalPlayer = new StreamingAudioPlayer(async () => {
+              recorder.reset();
+              if (awaitingClarification) recorder.start().catch(() => {});
+              else await appWindow.hide();
+            });
+          }
+          finalPlayer.append(event.data);
+        } else if (event.type === "audio_done") {
+          finalPlayer?.done();
+          finalPlayer = null;
+        } else if (event.type === "error") {
+          throw new Error(event.message);
+        } else if (event.type === "done") {
+          break;
         }
-        else if (event.type === "stored")  { itemId = event.item_id; dueAt = event.due_at; }
-        else if (event.type === "item_updated") applyItemUpdatedTimer(event.item_id, event.due_at, "OrbWindow");
-        else if (event.type === "audio")     audiob64 = event.audio_base64;
-        else if (event.type === "error")     throw new Error(event.message);
-        else if (event.type === "done")      break;
       }
 
-      if (awaitingClarification) {
-        if (audiob64) {
-          playAudio(audiob64, () => { recorder.reset(); recorder.start().catch(() => {}); });
-        } else {
+      if (!hasFinalAudio) {
+        if (awaitingClarification) {
           recorder.reset();
           recorder.start().catch(() => {});
-        }
-      } else {
-        if (audiob64) {
-          recorder.setSpeaking();
-          playAudio(audiob64, async () => { recorder.reset(); await appWindow.hide(); });
         } else {
           recorder.reset();
           await appWindow.hide();
         }
-        if (dueAt && itemId) scheduleReminder(itemId, dueAt);
       }
+
+      if (!awaitingClarification && dueAt && itemId) scheduleReminder(itemId, dueAt);
 
       await emit("recall:new-turn", {
         transcript,
