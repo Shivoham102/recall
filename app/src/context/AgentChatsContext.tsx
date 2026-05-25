@@ -68,7 +68,13 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [cursor, setCursor] = useState<Cursor | null>(null);
-  const [sidebarPinned, setSidebarPinned] = useState(false);
+  const [sidebarPinned, setSidebarPinnedState] = useState<boolean>(() => {
+    try { return localStorage.getItem("recall_sidebar_pinned") === "1"; } catch { return false; }
+  });
+  const setSidebarPinned = (next: boolean) => {
+    try { localStorage.setItem("recall_sidebar_pinned", next ? "1" : "0"); } catch { /* ignore */ }
+    setSidebarPinnedState(next);
+  };
 
   const [proactiveUnread, setProactiveUnread] = useState<boolean>(() => {
     try { return localStorage.getItem("recall_proactive_unread") === "1"; } catch { return false; }
