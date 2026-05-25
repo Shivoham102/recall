@@ -141,15 +141,6 @@ export async function suggestAgentChatTitle(firstUserMessage: string): Promise<s
   return t.length > 0 ? t : null;
 }
 
-export async function queryText(text: string, sessionId: string) {
-  const res = await authenticatedFetch(`${await getBase()}/query`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, session_id: sessionId }),
-  });
-  if (!res.ok) throw new Error(`query failed: ${res.status}`);
-  return res.json();
-}
 
 export async function getItems(params?: {
   status?: string;
@@ -235,15 +226,6 @@ export async function checkDueReminders(): Promise<DueReminder[]> {
   return res.json();
 }
 
-export async function dismissReminders(ids: string[]): Promise<void> {
-  if (ids.length === 0) return;
-  const res = await authenticatedFetch(`${await getBase()}/reminders/dismiss`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ids }),
-  });
-  if (!res.ok) throw new Error(`reminders/dismiss failed: ${res.status}`);
-}
 
 export async function markRemindersAsMissed(): Promise<{ id: string; content: string }[]> {
   const res = await authenticatedFetch(`${await getBase()}/reminders/mark-missed`, {
