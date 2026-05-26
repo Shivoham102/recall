@@ -1,7 +1,7 @@
 {
     "$schema":  "https://schema.tauri.app/config/2",
     "productName":  "Recall",
-    "version":  "0.6.6",
+    "version":  "0.6.7",
     "identifier":  "com.shivo.recall",
     "build":  {
                   "beforeDevCommand":  "pnpm dev",
@@ -71,13 +71,22 @@
                                 "icons/icon.ico"
                             ],
                    "macOS":  {
-                                  "dmg":  {
-                                              "background":  "assets/dmg/background.png",
-                                              "windowSize":  { "width": 660, "height": 400 },
-                                              "appPosition":  { "x": 180, "y": 170 },
-                                              "applicationFolderPosition":  { "x": 480, "y": 170 }
-                                          }
-                              },
+                                 "dmg":  {
+                                             "background":  "assets/dmg/background.png",
+                                             "windowSize":  {
+                                                                "width":  660,
+                                                                "height":  400
+                                                            },
+                                             "appPosition":  {
+                                                                 "x":  180,
+                                                                 "y":  170
+                                                             },
+                                             "applicationFolderPosition":  {
+                                                                               "x":  480,
+                                                                               "y":  170
+                                                                           }
+                                         }
+                             },
                    "windows":  {
                                    "nsis":  {
                                                 "installMode":  "currentUser",
