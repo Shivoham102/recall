@@ -40,7 +40,7 @@ TOOL_DEFINITIONS = [
                 },
                 "content": {
                     "type": "string",
-                    "description": "Full task/reminder description to store. Only set when completing a multi-turn sequence where the current transcript alone doesn't capture the full intent (e.g. user originally said 'do X on the 14th', now says '10am' — content: 'do X on the 14th'). Reflects any corrections made across turns.",
+                    "description": "Clean, concise title to store — always set this when should_store is true. Strip conversational filler ('hey can you', 'please', 'remind me to') and write only the task or reminder itself, e.g. 'Cook dinner' or 'Go for a walk'. In multi-turn sequences, reflect corrections across turns (e.g. user said 'do X on the 14th', now says '10am' → 'do X on the 14th at 10am').",
                 },
                 "update_only": {
                     "type": "boolean",
