@@ -11,6 +11,7 @@ import { AgentStep, CalendarCard, EmailCard, TaskCard } from "../../types/agentT
 import { scheduleReminder } from "../../services/reminderScheduler";
 import { applyItemUpdatedTimer } from "../../services/itemUpdatedTimer";
 import { AgentChatSidebar } from "./AgentChatSidebar";
+import { coalesceProactiveTurns } from "../../utils/agentChatDisplay";
 
 const TASK_TYPE_COLOR: Record<string, string> = {
   blocker: "#ff4466",
@@ -272,6 +273,7 @@ export function AgentTab() {
   }, [activeChat?.turns]);
 
   const activeTurns = activeChat?.turns ?? [];
+  const displayTurns = useMemo(() => coalesceProactiveTurns(activeTurns), [activeTurns]);
   const activeSessionId = activeChat?.agent_session_id;
 
   useEffect(() => {
@@ -504,7 +506,7 @@ export function AgentTab() {
 
   const turnsWithMeta = useMemo(() => {
     let lastDate = "";
-    return activeTurns.map((t) => {
+    return displayTurns.map((t) => {
       let showDivider = false;
       if (t.timestamp) {
         const d = new Date(t.timestamp).toDateString();
@@ -512,7 +514,7 @@ export function AgentTab() {
       }
       return { turn: t, showDivider };
     });
-  }, [activeTurns]);
+  }, [displayTurns]);
 
   // Proactive inbox chat always pinned first; remaining chats sorted by updated_at
   const chatsSorted = useMemo(() => {
@@ -581,7 +583,7 @@ export function AgentTab() {
         </div>
 
         <div className="agent-turns">
-          {activeTurns.length === 0 && (
+          {displayTurns.length === 0 && (
             <div className="agent-empty">
               <span className="agent-empty__icon">◈</span>
               <p>Your conversation will appear here.</p>
@@ -618,6 +620,16 @@ export function AgentTab() {
                 {t.emailCards && t.emailCards.length > 0 && <EmailCardGrid cards={t.emailCards} />}
                 {t.calendarCards && t.calendarCards.length > 0 && <CalendarCardGrid cards={t.calendarCards} />}
                 {t.taskCards && t.taskCards.length > 0 && <TaskCardGrid cards={t.taskCards} liveItems={liveItems} />}
+                {t.role === "proactive" && t.intentType === "morning_brief" && (
+                  <div className="morning-brief-drafts">
+                    <div className="morning-brief-drafts__label">Drafted follow-ups</div>
+                    {t.morningBriefDraftCards && t.morningBriefDraftCards.length > 0 ? (
+                      <TaskCardGrid cards={t.morningBriefDraftCards} liveItems={liveItems} />
+                    ) : (
+                      <p className="morning-brief-drafts__empty">No drafts for today</p>
+                    )}
+                  </div>
+                )}
               </div>
             </Fragment>
           ))}

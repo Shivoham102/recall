@@ -21,9 +21,85 @@ function sanitizeTurns(raw: unknown): AgentTurn[] {
       emailCards: Array.isArray(item.emailCards) ? (item.emailCards as AgentTurn["emailCards"]) : undefined,
       calendarCards: Array.isArray(item.calendarCards) ? (item.calendarCards as AgentTurn["calendarCards"]) : undefined,
       taskCards: Array.isArray(item.taskCards) ? (item.taskCards as AgentTurn["taskCards"]) : undefined,
+      morningBriefDraftCards: Array.isArray(item.morningBriefDraftCards)
+        ? (item.morningBriefDraftCards as AgentTurn["morningBriefDraftCards"])
+        : undefined,
       pending: typeof item.pending === "boolean" ? item.pending : undefined,
       timestamp: typeof item.timestamp === "string" ? item.timestamp : undefined,
+      audioB64: typeof item.audioB64 === "string" ? item.audioB64 : undefined,
     }));
+}
+
+const DRAFT_BRIEF_MATCH_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+function isoToMillis(iso?: string): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getTime();
+}
+
+function taskCardKey(card: NonNullable<AgentTurn["taskCards"]>[number]): string {
+  const id = card.id?.trim();
+  if (id) return `id:${id}`;
+  return `fallback:${card.intent_type}|${card.content}|${card.created_at}|${card.link ?? ""}`;
+}
+
+export function coalesceProactiveTurns(turns: AgentTurn[]): AgentTurn[] {
+  if (turns.length === 0) return turns;
+
+  const nextTurns = turns.map((turn) => {
+    if (turn.intentType === "morning_brief") {
+      return { ...turn, morningBriefDraftCards: [] as NonNullable<AgentTurn["morningBriefDraftCards"]> };
+    }
+    return { ...turn };
+  });
+
+  const morningBriefs: Array<{ idx: number; ts: number }> = [];
+  for (let i = 0; i < nextTurns.length; i += 1) {
+    const turn = nextTurns[i];
+    if (turn.intentType !== "morning_brief") continue;
+    const ts = isoToMillis(turn.timestamp);
+    if (ts === null) continue;
+    morningBriefs.push({ idx: i, ts });
+  }
+
+  for (const turn of nextTurns) {
+    if (turn.intentType !== "follow_up_draft") continue;
+    const draftTs = isoToMillis(turn.timestamp);
+    if (draftTs === null) continue;
+    let morningIdx: number | null = null;
+    let smallestDiff = Number.POSITIVE_INFINITY;
+    for (const candidate of morningBriefs) {
+      const diff = Math.abs(candidate.ts - draftTs);
+      if (diff > DRAFT_BRIEF_MATCH_WINDOW_MS) continue;
+      if (diff < smallestDiff) {
+        smallestDiff = diff;
+        morningIdx = candidate.idx;
+      }
+    }
+    if (morningIdx === null) continue;
+
+    const cards = turn.taskCards ?? [];
+    if (cards.length === 0) continue;
+    const morningTurn = nextTurns[morningIdx];
+    const existing = morningTurn.morningBriefDraftCards ?? [];
+    const seen = new Set(existing.map(taskCardKey));
+    const merged = [...existing];
+    for (const card of cards) {
+      const dedupeKey = taskCardKey(card);
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      merged.push(card);
+    }
+    morningTurn.morningBriefDraftCards = merged;
+  }
+
+  return nextTurns.filter((turn) => {
+    if (turn.intentType === "follow_up_scan") return false;
+    if (turn.intentType === "follow_up_draft") return false;
+    return true;
+  });
 }
 
 /** Hydrate a row from Supabase; `title` is only the persisted value (null if none). */

@@ -943,6 +943,26 @@ body { background: transparent; overflow: hidden; }
   border-color: rgba(255,255,255,0.15);
 }
 
+.morning-brief-drafts {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+}
+
+.morning-brief-drafts__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,170,0,0.95);
+}
+
+.morning-brief-drafts__empty {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.62);
+}
+
 .turn__badge {
   font-size: 10px;
   font-weight: 600;

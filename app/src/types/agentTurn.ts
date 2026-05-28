@@ -46,6 +46,8 @@ export interface AgentTurn {
   emailCards?: EmailCard[];
   calendarCards?: CalendarCard[];
   taskCards?: TaskCard[];
+  /** Draft follow-up cards grouped under the same-day morning brief. */
+  morningBriefDraftCards?: TaskCard[];
   pending?: boolean;
   /** ISO timestamp for proactive turns */
   timestamp?: string;
