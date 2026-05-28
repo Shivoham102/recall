@@ -149,7 +149,7 @@ async def run_job(
                     "task_cards": result.task_cards,
                     "metadata": result.metadata,
                 },
-                "finished_at": now.isoformat(),
+                "finished_at": datetime.now(timezone.utc).isoformat(),
             }).eq("id", job_id).execute()
 
             return result
@@ -163,7 +163,7 @@ async def run_job(
             }
             if new_retries >= MAX_RETRIES:
                 update["status"] = "failed"
-                update["finished_at"] = now.isoformat()
+                update["finished_at"] = datetime.now(timezone.utc).isoformat()
             terminal = new_retries >= MAX_RETRIES
             db.table("proactive_jobs").update(update).eq("id", job_id).execute()
             if terminal:

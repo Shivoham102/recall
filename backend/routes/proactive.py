@@ -67,7 +67,7 @@ def _fetch_undelivered(user_id: str, seen_ids: set[str]) -> list[dict]:
     db = get_admin_db()
     res = (
         db.table("proactive_jobs")
-        .select("id, job_type, result, started_at")
+        .select("id, job_type, result, started_at, finished_at")
         .eq("user_id", user_id)
         .eq("status", "done")
         .eq("delivered", False)
@@ -151,7 +151,9 @@ async def proactive_stream(
                             "result": job["result"] or {},
                             "audio_b64": audio_b64,
                             "proactive_chat_id": chat_id,
-                            "timestamp": job["started_at"],
+                            "timestamp": job.get("finished_at") or job["started_at"],
+                            "started_at": job["started_at"],
+                            "finished_at": job.get("finished_at"),
                         })
                 except Exception:
                     pass

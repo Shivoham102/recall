@@ -183,28 +183,61 @@ export async function clearMemory(): Promise<{ ok: boolean; status: string }> {
   return res.json();
 }
 
+export type AudioStartStatus = "started" | "rejected" | "error";
+export type AudioFinishStatus = "ended" | "rejected" | "error";
+
+export interface AudioPlaybackHandle {
+  started: Promise<AudioStartStatus>;
+  finished: Promise<AudioFinishStatus>;
+}
+
 let _audioQueue: Promise<void> = Promise.resolve();
 
-export function playAudio(base64mp3: string, onEnd?: () => void): void {
+export function playAudio(base64mp3: string, onEnd?: () => void): AudioPlaybackHandle {
+  let resolveStarted!: (value: AudioStartStatus) => void;
+  let resolveFinished!: (value: AudioFinishStatus) => void;
+  const started = new Promise<AudioStartStatus>((resolve) => { resolveStarted = resolve; });
+  const finished = new Promise<AudioFinishStatus>((resolve) => { resolveFinished = resolve; });
+
   _audioQueue = _audioQueue.then(
     () =>
-      new Promise<void>((resolve) => {
+      new Promise<void>((resolveQueue) => {
         const audio = new Audio(`data:audio/mpeg;base64,${base64mp3}`);
-        const finish = () => {
-          onEnd?.();
-          resolve();
+        let startedResolved = false;
+        let finishedResolved = false;
+
+        const resolveStartOnce = (status: AudioStartStatus) => {
+          if (startedResolved) return;
+          startedResolved = true;
+          resolveStarted(status);
         };
-        audio.addEventListener("ended", finish);
+
+        const finish = (status: AudioFinishStatus) => {
+          if (finishedResolved) return;
+          finishedResolved = true;
+          if (!startedResolved) resolveStartOnce(status === "ended" ? "started" : status);
+          onEnd?.();
+          resolveFinished(status);
+          resolveQueue();
+        };
+
+        audio.addEventListener("ended", () => finish("ended"));
         audio.addEventListener("error", (e) => {
           console.error("Audio playback error:", e);
-          finish();
+          resolveStartOnce("error");
+          finish("error");
         });
-        audio.play().catch((err) => {
-          console.error("Audio play() rejected:", err);
-          finish();
-        });
+        audio.play()
+          .then(() => resolveStartOnce("started"))
+          .catch((err) => {
+            console.error("Audio play() rejected:", err);
+            resolveStartOnce("rejected");
+            finish("rejected");
+          });
       }),
   );
+
+  return { started, finished };
 }
 
 export interface DueReminder {
@@ -249,9 +282,13 @@ export interface ProactiveJobResult {
 
 export type ProactiveStreamEvent =
   | { type: "connected"; proactive_chat_id: string }
-  | { type: "proactive_job"; id: string; job_type: string; result: ProactiveJobResult; audio_b64?: string | null; proactive_chat_id: string; timestamp: string }
+  | { type: "proactive_job"; id: string; job_type: string; result: ProactiveJobResult; audio_b64?: string | null; proactive_chat_id: string; timestamp: string; started_at?: string; finished_at?: string | null }
   | { type: "heartbeat" }
   | { type: "error"; message: string };
+
+export interface ProactiveEventHandlingResult {
+  markSeen?: boolean;
+}
 
 /**
  * Connect to the proactive SSE stream. Calls `onEvent` for each parsed event.
@@ -261,7 +298,7 @@ export type ProactiveStreamEvent =
  * Already-seen job IDs are tracked in sessionStorage to prevent duplicate delivery.
  */
 export function connectProactiveStream(
-  onEvent: (event: ProactiveStreamEvent) => void,
+  onEvent: (event: ProactiveStreamEvent) => void | ProactiveEventHandlingResult | Promise<void | ProactiveEventHandlingResult>,
 ): () => void {
   let cancelled = false;
   let controller: AbortController | null = null;
@@ -315,14 +352,14 @@ export function connectProactiveStream(
               if (event.type === "proactive_job") {
                 const seenIds = getSeenIds();
                 if (seenIds.has(event.id)) continue;
-                markSeen(event.id);
-                onEvent(event);
-                // Ack delivery asynchronously — fire-and-forget
-                void ackProactiveJob(event.id);
+                const result = await onEvent(event);
+                if (result?.markSeen) markSeen(event.id);
               } else {
-                onEvent(event);
+                await onEvent(event);
               }
-            } catch { /* skip malformed */ }
+            } catch (err) {
+              console.error("[proactive_stream] event handling failed:", err);
+            }
           }
         }
       } catch (err: unknown) {
@@ -340,7 +377,7 @@ export function connectProactiveStream(
   };
 }
 
-export async function ackProactiveJob(id: string): Promise<void> {
+export async function ackProactiveJob(id: string): Promise<boolean> {
   try {
     const res = await authenticatedFetch(`${await getBase()}/agent/proactive/ack`, {
       method: "POST",
@@ -348,7 +385,11 @@ export async function ackProactiveJob(id: string): Promise<void> {
       body: JSON.stringify({ id }),
     });
     if (!res.ok) throw new Error(String(res.status));
-  } catch { /* best-effort */ }
+    return true;
+  } catch (err) {
+    console.warn("[proactive_stream] proactive ack failed:", err);
+    return false;
+  }
 }
 
 export interface BehaviorPattern {

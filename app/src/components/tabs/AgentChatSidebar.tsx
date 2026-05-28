@@ -203,6 +203,7 @@ export function AgentChatSidebar({
                   className="agent-chat-row__menu-anchor"
                   ref={menuOpenId === chat.id ? menuAnchorRef : undefined}
                 >
+                  {!chat.is_proactive_inbox && (
                   <button
                     type="button"
                     className="agent-chat-row__kebab"
@@ -215,26 +216,31 @@ export function AgentChatSidebar({
                   >
                     ⋯
                   </button>
+                  )}
                   {menuOpenId === chat.id && (
                     <div className="agent-chat-menu" role="menu">
-                      <button
-                        type="button"
-                        className="agent-chat-menu__item"
-                        role="menuitem"
-                        onClick={() => beginRename(chat)}
-                      >
-                        <IconPencil />
-                        <span>Rename</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="agent-chat-menu__item agent-chat-menu__item--danger"
-                        role="menuitem"
-                        onClick={() => void requestDelete(chat.id)}
-                      >
-                        <IconTrash />
-                        <span>Delete</span>
-                      </button>
+                      {!chat.is_proactive_inbox && (
+                        <button
+                          type="button"
+                          className="agent-chat-menu__item"
+                          role="menuitem"
+                          onClick={() => beginRename(chat)}
+                        >
+                          <IconPencil />
+                          <span>Rename</span>
+                        </button>
+                      )}
+                      {!chat.is_proactive_inbox && (
+                        <button
+                          type="button"
+                          className="agent-chat-menu__item agent-chat-menu__item--danger"
+                          role="menuitem"
+                          onClick={() => void requestDelete(chat.id)}
+                        >
+                          <IconTrash />
+                          <span>Delete</span>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

@@ -8,9 +8,9 @@ import {
   useState,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { emit } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { supabase } from "../services/supabase";
-import { connectProactiveStream, suggestAgentChatTitle } from "../services/api";
+import { ackProactiveJob, connectProactiveStream, playAudio, suggestAgentChatTitle } from "../services/api";
 import { AgentChat, AgentTurn, CalendarCard, EmailCard, TaskCard } from "../types/agentTurn";
 import { firstUserMessageText, normalizeStoredAgentChat } from "../utils/agentChatDisplay";
 
@@ -18,6 +18,11 @@ const PAGE_SIZE = 50;
 const SAVE_DEBOUNCE_MS = 500;
 const ACTIVE_CHAT_KEY = "recall_active_chat_id";
 const LEGACY_SESSION_KEY = "recall_session_id";
+const MORNING_BRIEF_MAX_AGE_MS = 5 * 60 * 1000;
+const ORB_PLAYBACK_TIMEOUT_MS = 6000;
+const MAX_PLAYBACK_RETRIES = 3;
+
+type OrbPlaybackStatus = "started" | "skipped_busy" | "rejected" | "error";
 
 interface Cursor {
   updated_at: string;
@@ -88,6 +93,54 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
   const dirtyIdsRef = useRef<Set<string>>(new Set());
   const flushTimerRef = useRef<number | null>(null);
   const appWindow = useRef(getCurrentWindow()).current;
+  const playbackFailCountRef = useRef<Map<string, number>>(new Map());
+
+  const isMainWindowVisible = useCallback(async () => {
+    try {
+      const [visible, minimized] = await Promise.all([
+        appWindow.isVisible(),
+        appWindow.isMinimized(),
+      ]);
+      return visible && !minimized;
+    } catch (err) {
+      console.warn("[proactive] failed to read main window state:", err);
+      return false;
+    }
+  }, [appWindow]);
+
+  const requestOrbPlayback = useCallback((jobId: string, audioB64: string) => {
+    return new Promise<OrbPlaybackStatus | "timeout" | "emit_error">((resolve) => {
+      let settled = false;
+      let timeoutId: number | null = null;
+      let unlistenFn: (() => void) | null = null;
+
+      const finish = (status: OrbPlaybackStatus | "timeout" | "emit_error") => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId !== null) window.clearTimeout(timeoutId);
+        if (unlistenFn) unlistenFn();
+        resolve(status);
+      };
+
+      void listen<{ job_id: string; status: OrbPlaybackStatus }>("recall:proactive-ready-status", (evt) => {
+        if (evt.payload.job_id !== jobId) return;
+        finish(evt.payload.status);
+      })
+        .then((unlisten) => {
+          unlistenFn = unlisten;
+          timeoutId = window.setTimeout(() => finish("timeout"), ORB_PLAYBACK_TIMEOUT_MS);
+          void emit("recall:proactive-ready", { job_id: jobId, audio_b64: audioB64 })
+            .catch((err) => {
+              console.warn("[proactive] failed to emit orb playback request:", err);
+              finish("emit_error");
+            });
+        })
+        .catch((err) => {
+          console.warn("[proactive] failed to listen for orb playback status:", err);
+          finish("emit_error");
+        });
+    });
+  }, []);
 
   useEffect(() => {
     chatsRef.current = chats;
@@ -307,7 +360,7 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
 
   // Proactive SSE subscription.
   useEffect(() => {
-    const cancel = connectProactiveStream((event) => {
+    const cancel = connectProactiveStream(async (event) => {
       if (event.type === "connected") {
         const chatId = event.proactive_chat_id;
         proactiveChatIdRef.current = chatId;
@@ -327,9 +380,13 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
               }
             });
         }
+        return;
       } else if (event.type === "proactive_job") {
         const chatId = proactiveChatIdRef.current;
-        if (!chatId) return;
+        if (!chatId) {
+          console.warn("[proactive] dropping job because proactive chat is not ready:", event.id);
+          return { markSeen: false };
+        }
         const newTurn: AgentTurn = {
           id: event.id,
           role: "proactive",
@@ -344,22 +401,82 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
         replaceChatTurns(chatId, (prev) => [...prev, newTurn]);
         setProactiveUnread(true);
         try { localStorage.setItem("recall_proactive_unread", "1"); } catch { /* ignore */ }
-        if (event.job_type === "morning_brief" && event.audio_b64) {
-          const age = Date.now() - new Date(event.timestamp).getTime();
-          if (age < 5 * 60 * 1000) {
-            const ssKey = `recall_brief_announced_${event.id}`;
-            if (!sessionStorage.getItem(ssKey)) {
-              sessionStorage.setItem(ssKey, "1");
-              requestAnimationFrame(() => {
-                void emit("recall:proactive-ready", { audio_b64: event.audio_b64 });
-              });
-            }
+
+        const ackAndMark = async (sessionKey?: string) => {
+          const acked = await ackProactiveJob(event.id);
+          if (acked && sessionKey) {
+            try { sessionStorage.setItem(sessionKey, "1"); } catch { /* ignore */ }
           }
+          return { markSeen: acked };
+        };
+
+        if (event.job_type !== "morning_brief") {
+          return await ackAndMark();
         }
+
+        const ssKey = `recall_brief_announced_${event.id}`;
+        if (sessionStorage.getItem(ssKey)) {
+          return await ackAndMark(ssKey);
+        }
+        if (!event.audio_b64) {
+          console.warn("[proactive] skipping morning brief announcement: missing audio_b64", { jobId: event.id });
+          return await ackAndMark(ssKey);
+        }
+
+        if (!event.finished_at) {
+          console.warn("[proactive] skipping morning brief announcement: missing finished_at", { jobId: event.id });
+          return await ackAndMark(ssKey);
+        }
+        const finishedMs = Date.parse(event.finished_at);
+        if (Number.isNaN(finishedMs)) {
+          console.warn("[proactive] skipping morning brief announcement: invalid finished_at", {
+            jobId: event.id,
+            finished_at: event.finished_at,
+          });
+          return await ackAndMark(ssKey);
+        }
+        const ageMs = Date.now() - finishedMs;
+        if (ageMs > MORNING_BRIEF_MAX_AGE_MS) {
+          console.warn("[proactive] skipping morning brief announcement: stale brief", {
+            jobId: event.id,
+            age_ms: ageMs,
+          });
+          return await ackAndMark(ssKey);
+        }
+
+        const bumpFail = (id: string) => {
+          const n = (playbackFailCountRef.current.get(id) ?? 0) + 1;
+          playbackFailCountRef.current.set(id, n);
+          return n;
+        };
+
+        if (await isMainWindowVisible()) {
+          const playback = playAudio(event.audio_b64);
+          const startStatus = await playback.started;
+          if (startStatus === "started") return await ackAndMark(ssKey);
+          const failCount = bumpFail(event.id);
+          if (failCount >= MAX_PLAYBACK_RETRIES) {
+            console.warn("[proactive] main playback failed max retries; acking without audio", { jobId: event.id, status: startStatus });
+            return await ackAndMark(ssKey);
+          }
+          console.warn("[proactive] main playback rejected; leaving unacked for retry", { jobId: event.id, status: startStatus, attempt: failCount });
+          return { markSeen: false };
+        }
+
+        const orbStatus = await requestOrbPlayback(event.id, event.audio_b64);
+        if (orbStatus === "started") return await ackAndMark(ssKey);
+        const orbFailCount = bumpFail(event.id);
+        if (orbFailCount >= MAX_PLAYBACK_RETRIES) {
+          console.warn("[proactive] orb playback failed max retries; acking without audio", { jobId: event.id, status: orbStatus });
+          return await ackAndMark(ssKey);
+        }
+        console.warn("[proactive] orb playback did not start; leaving unacked for retry", { jobId: event.id, status: orbStatus, attempt: orbFailCount });
+        return { markSeen: false };
       }
+      return;
     });
     return cancel;
-  }, [replaceChatTurns]);
+  }, [isMainWindowVisible, replaceChatTurns, requestOrbPlayback, userId]);
 
   // Initial load and legacy migration.
   useEffect(() => {

@@ -9,18 +9,20 @@ import { scheduleReminder } from "../services/reminderScheduler";
 import { applyItemUpdatedTimer } from "../services/itemUpdatedTimer";
 
 const HOTKEY = "Ctrl+Shift+Space";
+type ProactivePlaybackStatus = "started" | "skipped_busy" | "rejected" | "error";
 
 async function isMainForeground(): Promise<boolean> {
   try {
     const mainWin = await Window.getByLabel("main");
     if (!mainWin) return false;
-    const [visible, minimized] = await Promise.all([
+    const [visible, minimized, focused] = await Promise.all([
       mainWin.isVisible(),
       mainWin.isMinimized(),
+      mainWin.isFocused(),
     ]);
-    return visible && !minimized;
+    return visible && !minimized && focused;
   } catch {
-    return false; // safe fallback: show orb
+    return false;
   }
 }
 
@@ -151,15 +153,21 @@ export function OrbWindow() {
     return () => { unregister(HOTKEY).catch(() => {}); };
   }, []);
 
-  const playProactiveAudio = useCallback(async (b64: string) => {
-    if (recorder.state !== "idle") return;
+  const playProactiveAudio = useCallback(async (b64: string): Promise<ProactivePlaybackStatus> => {
+    if (recorder.state !== "idle") return "skipped_busy";
     recorder.setSpeaking();
     const foreground = await isMainForeground();
     if (!foreground) await appWindow.show();
-    playAudio(b64, async () => {
+    const playback = playAudio(b64, async () => {
       recorder.reset();
       if (!foreground) await appWindow.hide();
     });
+    const startStatus = await playback.started;
+    if (startStatus === "started") return "started";
+
+    recorder.reset();
+    if (!foreground) await appWindow.hide().catch(() => {});
+    return startStatus === "rejected" ? "rejected" : "error";
   }, [recorder, appWindow]);
 
   useEffect(() => {
@@ -170,8 +178,11 @@ export function OrbWindow() {
   }, [playProactiveAudio]);
 
   useEffect(() => {
-    const unlisten = listen<{ audio_b64: string }>("recall:proactive-ready", async (e) => {
-      await playProactiveAudio(e.payload.audio_b64);
+    const unlisten = listen<{ job_id?: string; audio_b64: string }>("recall:proactive-ready", async (e) => {
+      const status = await playProactiveAudio(e.payload.audio_b64);
+      if (e.payload.job_id) {
+        await emit("recall:proactive-ready-status", { job_id: e.payload.job_id, status }).catch(() => {});
+      }
     });
     return () => { unlisten.then((f) => f()); };
   }, [playProactiveAudio]);
