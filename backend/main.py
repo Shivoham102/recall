@@ -30,6 +30,7 @@ from routes.proactive import router as proactive_router
 from routes.google_tokens import router as google_tokens_router
 from routes.memory import router as memory_router
 from routes.updates import router as updates_router
+from routes.suggestions import router as suggestions_router
 
 app = FastAPI(title="Recall Backend")
 
@@ -61,6 +62,7 @@ app.include_router(proactive_router)
 app.include_router(google_tokens_router)
 app.include_router(memory_router)
 app.include_router(updates_router)
+app.include_router(suggestions_router)
 
 _sm_enabled = bool(os.environ.get("SUPERMEMORY_API_KEY", "").strip())
 logger.info("Supermemory: %s", "enabled" if _sm_enabled else "disabled (no API key)")

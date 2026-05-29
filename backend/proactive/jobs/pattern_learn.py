@@ -7,16 +7,82 @@ frequency >= 3 AND confidence >= 0.8 (confidence = days_active / 7).
 
 Delivers only when a pattern is newly promoted; silent otherwise.
 """
-from collections import Counter
+import re
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from db import get_admin_db
 from proactive.runner import ProactiveResult
+from proactive.suggestions import upsert_suggestion
 
 _LOOKBACK_DAYS = 30
 _SHOW_THRESHOLD = 2      # visible in Profile tab
 _AUTO_RUN_FREQ = 3       # minimum frequency for auto_run consideration
 _AUTO_RUN_CONFIDENCE = 0.8  # minimum confidence for auto_run promotion
+
+# Recurring-reminder detection thresholds.
+_RECUR_MIN_OCCURRENCES = 4   # ≥4 reminders with the same content
+_RECUR_MIN_DISTINCT_DAYS = 4  # spread across ≥4 distinct local calendar days
+
+_PUNCT_RE = re.compile(r"[^\w\s]")
+_WS_RE = re.compile(r"\s+")
+
+
+def _normalize(content: str) -> str:
+    return _WS_RE.sub(" ", _PUNCT_RE.sub(" ", (content or "").lower())).strip()
+
+
+def _detect_recurring_reminders(db, user_id: str, user_tz: str, cutoff_iso: str) -> int:
+    """Find one-off reminders the user keeps re-creating and write a 'recurring_reminder'
+    suggestion for each. due_at is converted to the user's tz before bucketing so DST and
+    timezone don't split one real habit. Returns the number of suggestions written/re-armed."""
+    try:
+        tz = ZoneInfo(user_tz)
+    except (ZoneInfoNotFoundError, KeyError):
+        tz = ZoneInfo("UTC")
+
+    res = (
+        db.table("recall_items")
+        .select("id, content, due_at, recurrence, created_at")
+        .eq("user_id", user_id)
+        .gte("created_at", cutoff_iso)
+        .not_.is_("due_at", "null")
+        .execute()
+    )
+    rows = [r for r in (res.data or []) if not r.get("recurrence") and r.get("due_at")]
+
+    groups: dict[str, list] = defaultdict(list)
+    for r in rows:
+        try:
+            due = datetime.fromisoformat(r["due_at"].replace("Z", "+00:00")).astimezone(tz)
+        except Exception:
+            continue
+        norm = _normalize(r.get("content", ""))
+        if norm:
+            groups[norm].append((due, r["id"], r.get("content", "")))
+
+    written = 0
+    for norm, occ in groups.items():
+        if len(occ) < _RECUR_MIN_OCCURRENCES:
+            continue
+        if len({o[0].date() for o in occ}) < _RECUR_MIN_DISTINCT_DAYS:
+            continue
+        modal_hour = Counter(o[0].hour for o in occ).most_common(1)[0][0]
+        modal_min = Counter(o[0].minute for o in occ if o[0].hour == modal_hour).most_common(1)[0][0]
+        time_str = f"{modal_hour:02d}:{modal_min:02d}"
+        content = occ[-1][2]  # most recent phrasing
+        recurrence = {"freq": "daily", "time": time_str, "tz": user_tz}
+        payload = {
+            "content": content,
+            "recurrence": recurrence,
+            "source_item_ids": [o[1] for o in occ],
+        }
+        title = f"You've set “{content}” {len(occ)} times — make it a daily reminder?"
+        action = upsert_suggestion(db, user_id, "recurring_reminder", norm, title, payload)
+        if action in ("inserted", "rearmed"):
+            written += 1
+    return written
 
 _INTENT_LABELS: dict[str, str] = {
     "task": "task capture",
@@ -118,6 +184,17 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
                 "first_seen_at": first_seen_iso,
                 "last_seen_at": now.isoformat(),
             }).execute()
+
+    # ── Recurring-reminder + neglected-goal detection (write suggestions; surfaced via UI/brief) ──
+    try:
+        _detect_recurring_reminders(db, user_id, user_tz, cutoff)
+    except Exception as exc:
+        print(f"[pattern_learn] recurrence detection failed user={user_id}: {exc}")
+    try:
+        from proactive.jobs.goal_neglect import detect_neglected_goals
+        detect_neglected_goals(db, user_id)
+    except Exception as exc:
+        print(f"[pattern_learn] goal-neglect detection failed user={user_id}: {exc}")
 
     if newly_promoted:
         labels_str = ", ".join(newly_promoted)

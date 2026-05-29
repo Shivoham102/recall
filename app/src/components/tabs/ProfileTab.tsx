@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { AuthUser } from "../../hooks/useAuth";
 import { useTheme } from "../../hooks/useTheme";
-import { BehaviorPattern, getItems, getPatterns } from "../../services/api";
+import { LearnedProfile, getItems, getLearned } from "../../services/api";
+import { formatRecurrence } from "../../utils/dateFormat";
 
 interface Props {
   user: AuthUser;
@@ -9,18 +10,9 @@ interface Props {
   onShowOnboarding?: () => void;
 }
 
-function PatternBar({ frequency }: { frequency: number }) {
-  const filled = Math.min(frequency, 5);
-  return (
-    <span className="pattern-bar" aria-label={`${frequency} occurrences`}>
-      {"█".repeat(filled)}{"░".repeat(Math.max(0, 5 - filled))}
-    </span>
-  );
-}
-
 export function ProfileTab({ user, onLogout, onShowOnboarding }: Props) {
   const [itemCount, setItemCount] = useState<number | null>(null);
-  const [patterns, setPatterns] = useState<BehaviorPattern[] | null>(null);
+  const [learned, setLearned] = useState<LearnedProfile | null>(null);
   const [reconnectMsg, setReconnectMsg] = useState("");
   const { theme, setTheme } = useTheme();
 
@@ -28,9 +20,9 @@ export function ProfileTab({ user, onLogout, onShowOnboarding }: Props) {
     getItems({ status: "open", limit: 500 })
       .then((items) => setItemCount(items.length))
       .catch(() => {});
-    getPatterns()
-      .then((p) => setPatterns(p.filter((x) => x.frequency >= 2)))
-      .catch(() => setPatterns([]));
+    getLearned()
+      .then(setLearned)
+      .catch(() => setLearned({ auto_brief: [], habits: [], suggestions: { accepted: 0, dismissed: 0, pending: 0, total: 0 } }));
   }, []);
 
   useEffect(() => {
@@ -125,31 +117,71 @@ export function ProfileTab({ user, onLogout, onShowOnboarding }: Props) {
       </div>
 
       {/* What I've learned */}
-      {patterns !== null && (
-        <div className="profile-section">
-          <div className="profile-section__label">What I've learned</div>
-          {patterns.length === 0 ? (
-            <div className="profile-stat-row">
-              <span className="profile-stat__key profile-stat__key--muted">
-                Keep using Recall. Patterns appear after a few sessions.
-              </span>
-            </div>
-          ) : (
-            patterns.map((p) => (
-              <div key={p.id} className="profile-pattern-row">
-                <span className="profile-pattern__label">{p.query_template}</span>
-                <span className="profile-pattern__bar">
-                  <PatternBar frequency={p.frequency} />
+      {learned !== null && (() => {
+        const isEmpty =
+          learned.auto_brief.length === 0 &&
+          learned.habits.length === 0 &&
+          learned.suggestions.total === 0;
+        return (
+          <div className="profile-section profile-learned">
+            <div className="profile-section__label">What I've learned</div>
+
+            {isEmpty && (
+              <div className="profile-stat-row">
+                <span className="profile-stat__key profile-stat__key--muted">
+                  Keep using Recall. It starts learning your habits after a few sessions.
                 </span>
-                <span className="profile-pattern__count">{p.frequency}x</span>
-                {p.auto_run && (
-                  <span className="profile-pattern__auto-tag">auto-brief</span>
-                )}
               </div>
-            ))
-          )}
-        </div>
-      )}
+            )}
+
+            {/* Habits learned (recurring reminders) */}
+            {learned.habits.length > 0 && (
+              <div className="learned-group">
+                <div className="learned-group__title">Habits I keep for you</div>
+                {learned.habits.map((h) => (
+                  <div key={h.id} className="learned-habit">
+                    <span className="learned-habit__icon">↻</span>
+                    <span className="learned-habit__name">{h.content}</span>
+                    {h.recurrence && (
+                      <span className="learned-habit__cadence">{formatRecurrence(h.recurrence)}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* On auto-brief (no counts) */}
+            {learned.auto_brief.length > 0 && (
+              <div className="learned-group">
+                <div className="learned-group__title">Now on your auto-brief</div>
+                <div className="learned-chips">
+                  {learned.auto_brief.map((label) => (
+                    <span key={label} className="learned-chip">{label}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Suggestion outcome */}
+            {learned.suggestions.total > 0 && (
+              <div className="learned-group">
+                <div className="learned-group__title">Routines I suggested</div>
+                <div className="learned-suggest">
+                  <span className="learned-suggest__big">{learned.suggestions.accepted}</span>
+                  <span className="learned-suggest__small">
+                    of {learned.suggestions.total} accepted
+                  </span>
+                  {learned.suggestions.pending > 0 && (
+                    <span className="learned-suggest__pending">
+                      {learned.suggestions.pending} waiting for you
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Help */}
       {onShowOnboarding && (

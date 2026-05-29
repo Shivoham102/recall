@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getItems, updateItem, RecallItem } from "../../services/api";
 import { TabLoading } from "../TabLoading";
-import { formatDue } from "../../utils/dateFormat";
 
 const TYPE_ORDER = ["blocker", "task", "follow_up", "follow_up_draft", "progress", "note"];
 const TYPE_COLOR: Record<string, string> = {
@@ -20,7 +19,7 @@ export function TasksTab() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getItems({ status: "open" });
+      const data = await getItems({ status: "open", has_due_hint: false });
       setItems(data.sort((a, b) => {
         const typeDiff = TYPE_ORDER.indexOf(a.intent_type) - TYPE_ORDER.indexOf(b.intent_type);
         if (typeDiff !== 0) return typeDiff;
@@ -64,9 +63,6 @@ export function TasksTab() {
             <p className="task-card__content">{item.display_text || item.content}</p>
             <div className="task-card__footer">
               <span className="task-card__date">{fmt(item.updated_at)}</span>
-              {(item.due_hint || item.due_at) && (
-                <span className="task-card__due">due: {formatDue(item).toLowerCase()}</span>
-              )}
               <button className="task-card__resolve" onClick={() => resolve(item.id)} title="Mark resolved">✓</button>
             </div>
           </div>

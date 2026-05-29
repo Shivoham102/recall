@@ -38,6 +38,11 @@ CREATE TABLE IF NOT EXISTS recall_items (
 
 CREATE INDEX IF NOT EXISTS recall_items_embedding_idx ON recall_items USING hnsw (embedding vector_cosine_ops);
 
+-- Recurring reminders: NULL = one-off. Shape (self-contained, carries its own tz):
+--   { "freq": "daily"|"weekdays"|"weekly", "time": "18:00", "days": [0,2,4], "tz": "America/Los_Angeles" }
+-- days = weekly only, 0=Mon..6=Sun. due_at always holds the NEXT occurrence.
+ALTER TABLE recall_items ADD COLUMN IF NOT EXISTS recurrence jsonb;
+
 -- ── Email style profiles (weekly personalization cache) ───────────────────────
 CREATE TABLE IF NOT EXISTS email_style_profiles (
   user_id            text PRIMARY KEY REFERENCES users(id),
@@ -118,6 +123,33 @@ LANGUAGE sql STABLE AS $$
   FROM recall_items
   WHERE status = 'open'
     AND (p_user_id IS NULL OR user_id = p_user_id)
+  ORDER BY embedding <-> query_embedding
+  LIMIT match_count;
+$$;
+
+-- Same as match_recall_items but WITHOUT the status='open' filter. Used by goal-neglect
+-- detection: a resolved/missed "called mom" item is evidence the user DID act on the goal,
+-- so neglect checks must see all statuses.
+CREATE OR REPLACE FUNCTION match_recall_items_any_status(
+  query_embedding vector(1536),
+  match_count     int  DEFAULT 5,
+  p_user_id       text DEFAULT NULL
+)
+RETURNS TABLE (
+  id          uuid,
+  content     text,
+  intent_type text,
+  status      text,
+  created_at  timestamptz,
+  due_hint    text,
+  similarity  float
+)
+LANGUAGE sql STABLE AS $$
+  SELECT
+    id, content, intent_type, status, created_at, due_hint,
+    1 - (embedding <-> query_embedding) AS similarity
+  FROM recall_items
+  WHERE (p_user_id IS NULL OR user_id = p_user_id)
   ORDER BY embedding <-> query_embedding
   LIMIT match_count;
 $$;
@@ -218,6 +250,48 @@ CREATE TABLE IF NOT EXISTS user_behavior_patterns (
   UNIQUE (user_id, pattern_type, query_template)
 );
 
+-- ── Agent suggestions ─────────────────────────────────────────────────────────
+-- Actionable proactive suggestions surfaced to the user (accept/dismiss).
+-- kind: 'recurring_reminder' | 'neglected_goal'
+-- status: 'pending' | 'accepted' | 'dismissed'
+-- Re-arm logic (in pattern_learn): dismissed rows can return to pending after a cooldown;
+-- accepted rows are never re-suggested. dedupe_key = normalized content / 'goal:<id>'.
+CREATE TABLE IF NOT EXISTS agent_suggestions (
+  id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     text        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind        text        NOT NULL,
+  status      text        NOT NULL DEFAULT 'pending',
+  title       text,
+  payload     jsonb       NOT NULL DEFAULT '{}'::jsonb,
+  dedupe_key  text        NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  acted_at    timestamptz,
+  UNIQUE (user_id, kind, dedupe_key)
+);
+
+CREATE INDEX IF NOT EXISTS agent_suggestions_user_pending_idx
+  ON agent_suggestions (user_id, created_at DESC)
+  WHERE status = 'pending';
+
+-- ── User goals (aspirations) ──────────────────────────────────────────────────
+-- Captured "I should X more" intentions. Neglect detection surfaces a suggestion
+-- when no matching recall_item appears within the cadence window.
+-- cadence_hint: 'daily' | 'weekly' | 'monthly'  → neglect windows 2d / 9d / 35d.
+CREATE TABLE IF NOT EXISTS user_goals (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         text        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  goal_text       text        NOT NULL,
+  cadence_hint    text        NOT NULL DEFAULT 'weekly'
+                    CHECK (cadence_hint IN ('daily', 'weekly', 'monthly')),
+  status          text        NOT NULL DEFAULT 'active',
+  last_acted_at   timestamptz,
+  last_surfaced_at timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS user_goals_user_active_idx
+  ON user_goals (user_id, status);
+
 -- ── Users: proactive preferences + checkin tracking ───────────────────────────
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS timezone               text    DEFAULT 'UTC',
@@ -307,4 +381,17 @@ CREATE POLICY follow_up_threads_update_own ON follow_up_threads
 ALTER TABLE user_behavior_patterns ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS user_behavior_patterns_select_own ON user_behavior_patterns;
 CREATE POLICY user_behavior_patterns_select_own ON user_behavior_patterns
+  FOR SELECT USING ((auth.uid())::text = user_id);
+
+ALTER TABLE agent_suggestions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS agent_suggestions_select_own ON agent_suggestions;
+CREATE POLICY agent_suggestions_select_own ON agent_suggestions
+  FOR SELECT USING ((auth.uid())::text = user_id);
+DROP POLICY IF EXISTS agent_suggestions_update_own ON agent_suggestions;
+CREATE POLICY agent_suggestions_update_own ON agent_suggestions
+  FOR UPDATE USING ((auth.uid())::text = user_id);
+
+ALTER TABLE user_goals ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_goals_select_own ON user_goals;
+CREATE POLICY user_goals_select_own ON user_goals
   FOR SELECT USING ((auth.uid())::text = user_id);

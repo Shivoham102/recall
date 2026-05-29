@@ -220,3 +220,50 @@ async def debug_patterns(user: dict = Depends(get_current_user)):
         .execute()
     )
     return {"patterns": res.data or []}
+
+
+@router.get("/profile/learned")
+async def profile_learned(user: dict = Depends(get_current_user)):
+    """Aggregate for the 'What I've learned' panel: auto-brief intent labels (no counts),
+    learned habits (recurring reminders), and the suggestion accept/dismiss outcome.
+    Admin client bypasses RLS, so every query is scoped by user_id explicitly."""
+    db = get_admin_db()
+    uid = user["sub"]
+
+    auto_res = (
+        db.table("user_behavior_patterns")
+        .select("query_template")
+        .eq("user_id", uid)
+        .eq("auto_run", True)
+        .execute()
+    )
+    auto_brief = [r["query_template"] for r in (auto_res.data or []) if r.get("query_template")]
+
+    habit_res = (
+        db.table("recall_items")
+        .select("id, content, recurrence, created_at")
+        .eq("user_id", uid)
+        .eq("status", "open")
+        .not_.is_("recurrence", "null")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    habits = [
+        {"id": r["id"], "content": r["content"], "recurrence": r.get("recurrence")}
+        for r in (habit_res.data or [])
+    ]
+
+    sug_res = (
+        db.table("agent_suggestions")
+        .select("status")
+        .eq("user_id", uid)
+        .execute()
+    )
+    counts = {"accepted": 0, "dismissed": 0, "pending": 0}
+    for r in (sug_res.data or []):
+        s = r.get("status")
+        if s in counts:
+            counts[s] += 1
+    counts["total"] = sum(counts.values())
+
+    return {"auto_brief": auto_brief, "habits": habits, "suggestions": counts}

@@ -1,6 +1,8 @@
 import os
+from datetime import datetime, timezone
 from openai import OpenAI
 from db import get_db
+from time_utils import next_occurrence, recurrence_due_hint
 import context
 
 _openai: OpenAI | None = None
@@ -34,6 +36,7 @@ def store_item(
     due_hint: str | None = None,
     due_at: str | None = None,
     reminder_text: str | None = None,
+    recurrence: dict | None = None,
 ) -> str:
     vec = embed(content)
     user_id = context.current_user_id.get("") or None
@@ -45,6 +48,16 @@ def store_item(
         "status": "open",
         "user_id": user_id,
     }
+    # Recurring: due_at is the next occurrence computed from the rule (overrides any passed due_at).
+    # Ensure due_hint is non-null so the Tasks/Reminders split treats it as a reminder.
+    if recurrence:
+        try:
+            row["recurrence"] = recurrence
+            due_at = next_occurrence(recurrence, datetime.now(timezone.utc))
+            if not due_hint:
+                row["due_hint"] = recurrence_due_hint(recurrence)
+        except Exception:
+            row.pop("recurrence", None)  # malformed rule → store as a one-off
     if due_at:
         row["due_at"] = due_at
     if reminder_text:

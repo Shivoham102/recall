@@ -95,6 +95,13 @@ export async function* captureStreamText(
   yield* _streamEvents(form);
 }
 
+export interface Recurrence {
+  freq: "daily" | "weekdays" | "weekly";
+  time: string; // "HH:MM" 24h wall-clock
+  days?: number[]; // weekly only, 0=Mon..6=Sun
+  tz: string;
+}
+
 export interface RecallItem {
   id: string;
   content: string;
@@ -104,6 +111,7 @@ export interface RecallItem {
   updated_at: string;
   due_hint: string | null;
   due_at?: string | null;
+  recurrence?: Recurrence | null;
   display_text?: string;
 }
 
@@ -149,7 +157,8 @@ export async function getItems(params?: {
 }): Promise<RecallItem[]> {
   const url = new URL(`${await getBase()}/items`);
   if (params?.status) url.searchParams.set("status", params.status);
-  if (params?.has_due_hint) url.searchParams.set("has_due_hint", "true");
+  if (params?.has_due_hint !== undefined)
+    url.searchParams.set("has_due_hint", String(params.has_due_hint));
   if (params?.limit) url.searchParams.set("limit", String(params.limit));
   const res = await authenticatedFetch(url.toString());
   if (!res.ok) throw new Error(`getItems failed: ${res.status}`);
@@ -158,7 +167,7 @@ export async function getItems(params?: {
 
 export async function updateItem(
   id: string,
-  update: { status?: string; due_hint?: string },
+  update: { status?: string; due_hint?: string; recurrence?: Recurrence; clear_recurrence?: boolean },
 ): Promise<RecallItem> {
   const res = await authenticatedFetch(`${await getBase()}/items/${id}`, {
     method: "PATCH",
@@ -166,6 +175,53 @@ export async function updateItem(
     body: JSON.stringify(update),
   });
   if (!res.ok) throw new Error(`updateItem failed: ${res.status}`);
+  return res.json();
+}
+
+export interface AgentSuggestion {
+  id: string;
+  kind: "recurring_reminder" | "neglected_goal";
+  title: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export async function getSuggestions(): Promise<AgentSuggestion[]> {
+  const res = await authenticatedFetch(`${await getBase()}/agent/suggestions`);
+  if (!res.ok) throw new Error(`getSuggestions failed: ${res.status}`);
+  const data = (await res.json()) as { suggestions?: AgentSuggestion[] };
+  return data.suggestions ?? [];
+}
+
+export async function acceptSuggestion(id: string): Promise<void> {
+  const res = await authenticatedFetch(`${await getBase()}/agent/suggestions/${id}/accept`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`acceptSuggestion failed: ${res.status}`);
+}
+
+export async function dismissSuggestion(id: string): Promise<void> {
+  const res = await authenticatedFetch(`${await getBase()}/agent/suggestions/${id}/dismiss`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`dismissSuggestion failed: ${res.status}`);
+}
+
+export interface LearnedHabit {
+  id: string;
+  content: string;
+  recurrence: Recurrence | null;
+}
+
+export interface LearnedProfile {
+  auto_brief: string[];
+  habits: LearnedHabit[];
+  suggestions: { accepted: number; dismissed: number; pending: number; total: number };
+}
+
+export async function getLearned(): Promise<LearnedProfile> {
+  const res = await authenticatedFetch(`${await getBase()}/profile/learned`);
+  if (!res.ok) throw new Error(`getLearned failed: ${res.status}`);
   return res.json();
 }
 

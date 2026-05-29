@@ -1549,6 +1549,57 @@ body { background: transparent; overflow: hidden; }
 .reminder-card--missed { border-color: color-mix(in srgb, var(--red) 22%, transparent); }
 .reminder-card--missed .reminder-card__due { color: var(--red); }
 
+/* Repeating reminders */
+.reminder-card--repeating { border-color: color-mix(in srgb, var(--purple) 30%, transparent); }
+.reminder-card--repeating .reminder-card__due { color: var(--purple); }
+
+/* Suggestion strip (learned proactive suggestions) */
+.suggestion-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px 4px;
+}
+.suggestion-card {
+  background: color-mix(in srgb, var(--purple) 8%, var(--bg3));
+  border: 1px solid color-mix(in srgb, var(--purple) 32%, transparent);
+  border-radius: 9px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.suggestion-card__icon { font-size: 15px; }
+.suggestion-card__title { font-size: 13px; line-height: 1.5; }
+.suggestion-card__actions { display: flex; gap: 8px; }
+.suggestion-card__accept {
+  background: var(--purple);
+  border: 1px solid var(--purple);
+  border-radius: 5px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 4px 11px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.suggestion-card__accept:hover { opacity: 0.88; }
+.suggestion-card__accept:disabled { opacity: 0.5; cursor: default; }
+.suggestion-card__dismiss {
+  background: none;
+  border: 1px solid var(--border2);
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 4px 11px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.suggestion-card__dismiss:hover { color: var(--text); border-color: var(--text-muted); }
+.suggestion-card__dismiss:disabled { opacity: 0.5; cursor: default; }
+
 
 /* ═══════════════════════════════════════════
    LOGIN SCREEN
@@ -1853,28 +1904,72 @@ body { background: transparent; overflow: hidden; }
 
 .profile-stat__key--muted { color: var(--text-muted, rgba(255,255,255,0.4)); font-size: 12px; }
 
-.profile-pattern-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto auto;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  font-size: 12px;
-}
-.profile-pattern__label { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.profile-pattern__bar { color: var(--lavender); font-size: 10px; letter-spacing: -1px; }
-.profile-pattern__count { color: var(--text-muted); min-width: 24px; text-align: right; }
-.profile-pattern__auto-tag {
-  font-size: 10px;
+/* What I've learned — habits, auto-brief, suggestion outcome */
+.profile-learned { gap: 14px; }
+.learned-group { display: flex; flex-direction: column; gap: 8px; }
+.learned-group__title {
+  font-size: 11px;
   font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--lavender) 16%, transparent);
-  border: 1px solid color-mix(in srgb, var(--lavender) 32%, transparent);
-  color: var(--lavender);
+  letter-spacing: 0.03em;
+  color: color-mix(in srgb, var(--purple) 70%, var(--text-muted));
+}
+
+/* Habits learned (recurring reminders) */
+.learned-habit {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--purple) 7%, var(--bg3));
+  border: 1px solid color-mix(in srgb, var(--purple) 22%, transparent);
+}
+.learned-habit__icon { color: var(--purple); font-size: 14px; flex: none; }
+.learned-habit__name { font-size: 13px; color: var(--text); flex: 1; }
+.learned-habit__cadence {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--purple);
   white-space: nowrap;
 }
-.pattern-bar { font-family: monospace; }
+
+/* Auto-brief chips (no counts) */
+.learned-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.learned-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--purple) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--purple) 34%, transparent);
+  color: color-mix(in srgb, var(--purple) 85%, var(--text));
+  text-transform: capitalize;
+}
+
+/* Suggestion outcome */
+.learned-suggest {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.learned-suggest__big {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--purple);
+}
+.learned-suggest__small { font-size: 12px; color: var(--text-muted); }
+.learned-suggest__pending {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--amber) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 32%, transparent);
+  color: var(--amber);
+  margin-left: auto;
+}
 
 /* ─────────────────────────────────────────
    UTILITY

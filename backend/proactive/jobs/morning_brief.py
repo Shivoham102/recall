@@ -93,6 +93,24 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
     text = loop_result.text or f"Morning brief — {today}"
     print(f"[morning_brief] loop done text_len={len(text)}")
 
+    # Append up to 3 pending suggestions (admin client bypasses RLS — scope user_id manually).
+    try:
+        sug_res = (
+            get_admin_db()
+            .table("agent_suggestions")
+            .select("title")
+            .eq("user_id", user_id)
+            .eq("status", "pending")
+            .order("created_at", desc=True)
+            .limit(3)
+            .execute()
+        )
+        sug_lines = [f"💡 {s['title']}" for s in (sug_res.data or []) if s.get("title")]
+        if sug_lines:
+            text = f"{text}\n\n" + "\n".join(sug_lines)
+    except Exception as exc:
+        print(f"[morning_brief] suggestion fetch failed: {exc}")
+
     return ProactiveResult(
         text=text,
         job_type="morning_brief",

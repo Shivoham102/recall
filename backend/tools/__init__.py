@@ -1,6 +1,7 @@
 from tools.memory import classify_intent, recall_search, recall_update_item, surface_tasks
 from tools.filesystem import file_create
 from tools.user_memory import remember_user_memory
+from tools.goals import track_goal
 
 _google_tools_available = False
 try:
@@ -37,6 +38,24 @@ TOOL_DEFINITIONS = [
                 "reminder_text": {
                     "type": "string",
                     "description": "What to say when the reminder fires, second-person. Omit if no reminder.",
+                },
+                "recurrence": {
+                    "type": "object",
+                    "description": (
+                        "Set ONLY for repeating reminders ('every day', 'every weekday', 'every Monday at 9'). "
+                        "Omit for one-off reminders. Still set due_hint to the first occurrence."
+                    ),
+                    "properties": {
+                        "freq": {"type": "string", "enum": ["daily", "weekdays", "weekly"]},
+                        "time": {"type": "string", "description": "24h wall-clock 'HH:MM', e.g. '18:00'"},
+                        "days": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "weekly only: weekday numbers 0=Mon..6=Sun, e.g. [0,2,4]",
+                        },
+                        "tz": {"type": "string", "description": "IANA tz from the Date context, e.g. 'America/Los_Angeles'"},
+                    },
+                    "required": ["freq", "time", "tz"],
                 },
                 "content": {
                     "type": "string",
@@ -94,6 +113,13 @@ TOOL_DEFINITIONS = [
                 "reminder_text": {
                     "anyOf": [{"type": "string"}, {"type": "null"}],
                     "description": "Optional updated text to say when the reminder fires. Use null to clear it.",
+                },
+                "recurrence": {
+                    "anyOf": [{"type": "object"}, {"type": "null"}],
+                    "description": (
+                        "Optional. Set an object {freq,time,tz,days?} to make this a repeating reminder "
+                        "(or change its schedule); due_at is recomputed. Use null to stop repeating."
+                    ),
                 },
             },
             "required": ["item_id"],
@@ -156,6 +182,28 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "track_goal",
+        "description": (
+            "Record a recurring personal aspiration the user wants to keep up with "
+            "('I should call my mom more', 'I want to read more', 'keep up with the gym'). "
+            "Recall nudges them if it goes neglected. Do NOT use for one-off tasks or timed reminders "
+            "(use classify_intent for those). When you call this, also call classify_intent with should_store: false "
+            "so the aspiration isn't double-stored as a note."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "goal_text": {"type": "string", "description": "Concise goal, e.g. 'Call mom', 'Read more', 'Go to the gym'"},
+                "cadence": {
+                    "type": "string",
+                    "enum": ["daily", "weekly", "monthly"],
+                    "description": "How often they want to do it. Default weekly.",
+                },
+            },
+            "required": ["goal_text"],
+        },
+    },
+    {
         "name": "file_create",
         "description": "Create a new text file on the local filesystem. Safe to call immediately — no confirmation needed.",
         "input_schema": {
@@ -176,6 +224,7 @@ TOOL_REGISTRY: dict = {
     "recall_update_item": recall_update_item,
     "surface_tasks": surface_tasks,
     "remember_user_memory": remember_user_memory,
+    "track_goal": track_goal,
     "file_create": file_create,
 }
 

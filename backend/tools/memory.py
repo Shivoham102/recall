@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import context
 from db import get_db
 from rag import embed, retrieve_similar
-from time_utils import parse_due_at
+from time_utils import parse_due_at, next_occurrence, recurrence_due_hint
 
 # Module-level cache so surface_tasks can look up by index (single-user app)
 _last_task_fetch: list = []
@@ -86,6 +86,26 @@ async def recall_update_item(inp: dict) -> dict:
 
     if "reminder_text" in inp:
         update["reminder_text"] = inp.get("reminder_text")
+
+    if "recurrence" in inp:
+        recurrence = inp.get("recurrence")
+        if recurrence is None:
+            update["recurrence"] = None  # stop repeating; due_hint/due_at left as-is unless also cleared
+        else:
+            try:
+                next_due = next_occurrence(recurrence, datetime.now(timezone.utc))
+            except Exception:
+                return {
+                    "summary": f"Invalid recurrence: {recurrence}",
+                    "updated": False,
+                    "item_id": item_id,
+                    "error": True,
+                }
+            update["recurrence"] = recurrence
+            update["due_at"] = next_due
+            # Keep due_hint non-null so the item stays classified as a reminder.
+            if "due_hint" not in inp:
+                update["due_hint"] = recurrence_due_hint(recurrence)
 
     if "due_hint" in inp:
         due_hint = inp.get("due_hint")

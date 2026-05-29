@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from db import get_db
 from tts import synthesize
 from auth import get_current_user
+from time_utils import next_occurrence
 
 router = APIRouter()
 
@@ -53,7 +54,7 @@ async def get_due_reminders(user: dict = Depends(get_current_user)):
     result = (
         get_db()
         .table("recall_items")
-        .select("id, content, intent_type, reminder_text")
+        .select("id, content, intent_type, reminder_text, recurrence")
         .eq("user_id", user["sub"])
         .lte("due_at", now)
         .is_("reminded_at", "null")
@@ -71,8 +72,19 @@ async def get_due_reminders(user: dict = Depends(get_current_user)):
             audio = await synthesize(spoken)
         except Exception:
             continue  # leave reminded_at null so it retries next call
-        # Mark reminded only after TTS succeeds
-        get_db().table("recall_items").update({"reminded_at": now}).eq("id", item["id"]).execute()
+        # Recurring reminders: fire once (late if overdue), then roll due_at forward to the
+        # next future occurrence and leave reminded_at null so they fire again. One-off
+        # reminders: mark reminded so they don't repeat.
+        recurrence = item.get("recurrence")
+        if recurrence:
+            try:
+                next_due = next_occurrence(recurrence, datetime.now(timezone.utc))
+                get_db().table("recall_items").update({"due_at": next_due}).eq("id", item["id"]).execute()
+            except Exception:
+                # Malformed recurrence — mark reminded to avoid a fire loop
+                get_db().table("recall_items").update({"reminded_at": now}).eq("id", item["id"]).execute()
+        else:
+            get_db().table("recall_items").update({"reminded_at": now}).eq("id", item["id"]).execute()
         output.append({
             "id": item["id"],
             "content": item["content"],
@@ -96,6 +108,7 @@ def mark_missed(user: dict = Depends(get_current_user)):
         .eq("user_id", user["sub"])
         .eq("status", "open")
         .is_("reminded_at", "null")
+        .is_("recurrence", "null")  # recurring reminders never go "missed" — /reminders/due owns them
         .lte("due_at", cutoff)
         .execute()
     )

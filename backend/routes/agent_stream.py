@@ -91,7 +91,7 @@ async def capture_stream(
             yield _sse({"type": "transcript", "text": transcript})
 
             spoken = ""
-            metadata: dict = {"intent_type": "note", "should_store": False, "due_hint": None, "reminder_text": None, "content": None, "awaiting_clarification": False, "update_only": False}
+            metadata: dict = {"intent_type": "note", "should_store": False, "due_hint": None, "reminder_text": None, "content": None, "awaiting_clarification": False, "update_only": False, "recurrence": None}
             handled_update_item = False
 
             try:
@@ -150,6 +150,7 @@ async def capture_stream(
                     due_hint=metadata.get("due_hint"),
                     due_at=due_at,
                     reminder_text=metadata.get("reminder_text"),
+                    recurrence=metadata.get("recurrence"),
                 )
 
             yield _sse({

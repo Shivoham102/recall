@@ -65,17 +65,19 @@ def _build_display_text(content: str, due_hint: str | None) -> str:
 def get_items(
     user: dict = Depends(get_current_user),
     status: str | None = None,
-    has_due_hint: bool = False,
+    has_due_hint: bool | None = None,
     limit: int = Query(100, le=500),
 ):
     db = get_db()
     query = db.table("recall_items").select(
-        "id,content,intent_type,status,created_at,updated_at,due_hint,due_at"
+        "id,content,intent_type,status,created_at,updated_at,due_hint,due_at,recurrence"
     ).eq("user_id", user["sub"])
     if status:
         query = query.eq("status", status)
-    if has_due_hint:
+    if has_due_hint is True:
         query = query.not_.is_("due_hint", "null")
+    elif has_due_hint is False:
+        query = query.is_("due_hint", "null")
     result = query.order("created_at", desc=True).limit(limit).execute()
     data = result.data or []
     for item in data:
@@ -89,12 +91,26 @@ def get_items(
 class ItemUpdate(BaseModel):
     status: str | None = None
     due_hint: str | None = None
+    # recurrence: pass {} or null to CLEAR (stop repeating); a dict to set. Sentinel below
+    # distinguishes "field absent" from "explicitly clearing", since None means clear here.
+    recurrence: dict | None = None
+    clear_recurrence: bool = False
 
 
 @router.patch("/items/{item_id}")
 def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(get_current_user)):
     db = get_db()
-    update = {k: v for k, v in body.model_dump().items() if v is not None}
+    update = {
+        k: v
+        for k, v in body.model_dump(exclude={"recurrence", "clear_recurrence"}).items()
+        if v is not None
+    }
+    if body.clear_recurrence:
+        update["recurrence"] = None
+        update["due_hint"] = None
+        update["due_at"] = None
+    elif body.recurrence is not None:
+        update["recurrence"] = body.recurrence
     if not update:
         return {}
     update["updated_at"] = datetime.now(timezone.utc).isoformat()

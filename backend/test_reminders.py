@@ -45,7 +45,7 @@ def _teardown_user():
     _cleanup()
     _admin.table("users").delete().eq("id", TEST_USER_ID).execute()
 
-def _insert(due_offset_hours: float, status: str = "open", reminded_at=None) -> str:
+def _insert(due_offset_hours: float, status: str = "open", reminded_at=None, recurrence=None) -> str:
     due = datetime.now(timezone.utc) + timedelta(hours=due_offset_hours)
     row = {
         "content": f"test item due_offset={due_offset_hours}h status={status}",
@@ -55,6 +55,8 @@ def _insert(due_offset_hours: float, status: str = "open", reminded_at=None) -> 
     }
     if reminded_at is not None:
         row["reminded_at"] = reminded_at
+    if recurrence is not None:
+        row["recurrence"] = recurrence
     result = _admin.table("recall_items").insert(row).execute()
     return result.data[0]["id"]
 
@@ -119,6 +121,17 @@ def test_mark_missed_within_2h_window_ignored():
     assert id_ not in marked_ids, "item < 2h overdue should not be marked missed"
     assert _row(id_)["status"] == "open"
 
+def test_mark_missed_ignores_recurring():
+    # Recurring reminders are owned solely by /reminders/due (fire-late + roll-forward).
+    # mark-missed must never mark them missed, regardless of how overdue.
+    rec = {"freq": "daily", "time": "06:00", "tz": "UTC"}
+    id_ = _insert(-5, status="open", recurrence=rec)  # 5h overdue
+    result = mark_missed(user=TEST_USER)
+    marked_ids = [i["id"] for i in result["items"]]
+    assert id_ not in marked_ids, "recurring item must not be marked missed"
+    assert _row(id_)["status"] == "open", "recurring item status must stay open"
+
+
 def test_mark_missed_cannot_affect_other_users():
     other = "test-recall-other-00000000"
     _admin.table("users").upsert({"id": other, "email": "other@recall.test"}).execute()
@@ -150,6 +163,7 @@ TESTS = [
     test_mark_missed_ignores_future_items,
     test_mark_missed_ignores_already_reminded,
     test_mark_missed_within_2h_window_ignored,
+    test_mark_missed_ignores_recurring,
     test_mark_missed_cannot_affect_other_users,
 ]
 
