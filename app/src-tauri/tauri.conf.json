@@ -21,7 +21,8 @@
                                     "transparent":  true,
                                     "resizable":  true,
                                     "skipTaskbar":  false,
-                                    "visible":  true
+                                    "visible":  true,
+                                    "center":  true
                                 },
                                 {
                                     "label":  "orb",

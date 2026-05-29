@@ -88,7 +88,12 @@ async fn simulate_update(app: tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -241,16 +246,26 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            if let tauri::RunEvent::Exit = event {
-                if let Some(child) = app_handle
-                    .state::<BackendProcess>()
-                    .0
-                    .lock()
-                    .unwrap()
-                    .take()
-                {
-                    let _ = child.kill();
+            match event {
+                tauri::RunEvent::Exit => {
+                    if let Some(child) = app_handle
+                        .state::<BackendProcess>()
+                        .0
+                        .lock()
+                        .unwrap()
+                        .take()
+                    {
+                        let _ = child.kill();
+                    }
                 }
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Reopen { .. } => {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+                _ => {}
             }
         });
 }
