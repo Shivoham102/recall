@@ -95,6 +95,9 @@ _INTENT_LABELS: dict[str, str] = {
     "update": "status updates",
 }
 
+# Inverse map (label → intent_type), used by morning_brief to resolve auto_run rows.
+INTENT_BY_LABEL: dict[str, str] = {v: k for k, v in _INTENT_LABELS.items()}
+
 
 async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC") -> ProactiveResult:
     db = get_admin_db()

@@ -44,6 +44,67 @@ Do not invent facts from memory; all surfaced items must come from calendar, ema
 {memory_context}
 """
 
+# Display nouns for the "Tracking for you" line. _INTENT_LABELS verbose forms
+# ("note taking") read wrong in a sentence, so map intent_type → a plain noun.
+_BRIEF_NOUNS = {
+    "task": "task",
+    "blocker": "blocker",
+    "follow_up": "follow-up",
+    "progress": "progress update",
+    "note": "note",
+    "update": "status update",
+}
+
+
+def _append_auto_brief_tasks(user_id: str, existing_cards: list[dict]) -> tuple[list[dict], str]:
+    """Surface the user's auto_run intent types as task cards (deterministic DB fetch, not LLM).
+    Returns (new_cards, tracking_line). Best-effort: any failure returns ([], "")."""
+    try:
+        from proactive.jobs.pattern_learn import INTENT_BY_LABEL  # noqa: PLC0415
+        db = get_admin_db()
+        auto_res = (
+            db.table("user_behavior_patterns")
+            .select("query_template")
+            .eq("user_id", user_id)
+            .eq("auto_run", True)
+            .execute()
+        )
+        labels = [r["query_template"] for r in (auto_res.data or []) if r.get("query_template")]
+        types = []
+        for label in labels:
+            intent = INTENT_BY_LABEL.get(label) or label.replace(" ", "_")
+            if intent != "query" and intent not in types:
+                types.append(intent)
+        if not types:
+            return [], ""
+
+        item_res = (
+            db.table("recall_items")
+            .select("id, content, intent_type, status, created_at, due_hint, due_at")
+            .eq("user_id", user_id)
+            .eq("status", "open")
+            .in_("intent_type", types)
+            .order("created_at", desc=True)
+            .limit(10)
+            .execute()
+        )
+        existing_ids = {c.get("id") for c in existing_cards}
+        survivors = [r for r in (item_res.data or []) if r.get("id") not in existing_ids][:5]
+        if not survivors:
+            return [], ""
+
+        from collections import Counter  # noqa: PLC0415
+        counts = Counter(r["intent_type"] for r in survivors)
+        parts = []
+        for intent, n in counts.items():
+            noun = _BRIEF_NOUNS.get(intent, intent.replace("_", " "))
+            parts.append(f"{n} {noun}{'s' if n != 1 else ''}")
+        tracking_line = "Tracking for you: " + ", ".join(parts) + "."
+        return survivors, tracking_line
+    except Exception as exc:
+        print(f"[morning_brief] auto_run surfacing failed: {exc}")
+        return [], ""
+
 
 def _last_delivery_hours_ago(user_id: str) -> int:
     """Hours since last delivered morning brief for this user, capped at 72. Default 24 on first run."""
@@ -111,10 +172,17 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
     except Exception as exc:
         print(f"[morning_brief] suggestion fetch failed: {exc}")
 
+    # Auto-brief: append the user's frequently-tracked (auto_run) intent types as task cards.
+    task_cards = list(loop_result.task_cards)
+    auto_cards, tracking_line = _append_auto_brief_tasks(user_id, task_cards)
+    if auto_cards:
+        task_cards.extend(auto_cards)
+        text = f"{text}\n\n{tracking_line}"
+
     return ProactiveResult(
         text=text,
         job_type="morning_brief",
         email_cards=loop_result.email_cards,
         calendar_cards=loop_result.calendar_cards,
-        task_cards=loop_result.task_cards,
+        task_cards=task_cards,
     )
