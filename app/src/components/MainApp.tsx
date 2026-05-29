@@ -9,9 +9,11 @@ import { TasksTab } from "./tabs/TasksTab";
 import { MemoryTab } from "./tabs/MemoryTab";
 import { RemindersTab } from "./tabs/RemindersTab";
 import { ProfileTab } from "./tabs/ProfileTab";
+import { Onboarding } from "./Onboarding";
 import { BrainIcon } from "./icons/BrainIcon";
 import { loadPendingReminders } from "../services/reminderScheduler";
 import { AuthUser } from "../hooks/useAuth";
+import { useTheme } from "../hooks/useTheme";
 import { AgentChatsProvider } from "../context/AgentChatsContext";
 
 interface Props {
@@ -20,6 +22,8 @@ interface Props {
 }
 
 type Tab = "agent" | "tasks" | "memory" | "reminders" | "profile";
+
+const ONBOARDING_KEY = "recall_onboarding_complete";
 
 const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   { id: "agent",       label: "Agent",       icon: "◈" },
@@ -39,11 +43,20 @@ interface UpdateState {
 
 export function MainApp({ user, onLogout }: Props) {
   const [tab, setTab] = useState<Tab>("agent");
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(() => {
+    try { return localStorage.getItem(ONBOARDING_KEY) !== "1"; } catch { return true; }
+  });
   const [updateOverlay, setUpdateOverlay] = useState<UpdateState | null>(null);
   const [pendingUpdate, setPendingUpdate] = useState<string | null>(null);
   const [upToDate, setUpToDate] = useState(false);
   const pendingVersionRef = useRef<string | null>(null);
   const appWindow = useRef(getCurrentWindow()).current;
+  const { theme, toggleTheme } = useTheme();
+
+  const closeOnboarding = () => {
+    try { localStorage.setItem(ONBOARDING_KEY, "1"); } catch { /* ignore */ }
+    setShowOnboarding(false);
+  };
 
   useEffect(() => {
     loadPendingReminders();
@@ -119,6 +132,23 @@ export function MainApp({ user, onLogout }: Props) {
           ))}
         </div>
         <button
+          className="titlebar-icon-btn"
+          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          aria-label="Toggle theme"
+          onClick={toggleTheme}
+        >
+          {theme === "dark" ? (
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="3.2" stroke="currentColor" strokeWidth="1.4" />
+              <path d="M8 1.5v1.6M8 12.9v1.6M14.5 8h-1.6M3.1 8H1.5M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1M12.6 12.6l-1.1-1.1M4.5 4.5L3.4 3.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          ) : (
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <path d="M13.5 9.8A5.6 5.6 0 0 1 6.2 2.5a5.6 5.6 0 1 0 7.3 7.3Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
+        <button
           className={`update-btn${pendingUpdate ? " update-btn--dot" : ""}`}
           title={pendingUpdate ? `Update to v${pendingUpdate}` : "Check for updates"}
           onClick={async () => {
@@ -131,7 +161,7 @@ export function MainApp({ user, onLogout }: Props) {
           }}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M7 11V3M7 3L4 6M7 3L10 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M7 3V9M7 9L4 6M7 9L10 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M2 12H12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
         </button>
@@ -149,7 +179,7 @@ export function MainApp({ user, onLogout }: Props) {
           {/* {tab === "transcripts" && <TranscriptsTab />} */}
           {tab === "memory"      && <MemoryTab />}
           {tab === "reminders"   && <RemindersTab />}
-          {tab === "profile"     && <ProfileTab user={user} onLogout={onLogout} />}
+          {tab === "profile"     && <ProfileTab user={user} onLogout={onLogout} onShowOnboarding={() => setShowOnboarding(true)} />}
         </div>
       </AgentChatsProvider>
 
@@ -185,6 +215,8 @@ export function MainApp({ user, onLogout }: Props) {
       {upToDate && (
         <div className="update-toast">Recall is up to date.</div>
       )}
+
+      {showOnboarding && <Onboarding onClose={closeOnboarding} />}
     </div>
   );
 }

@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AuthUser } from "../../hooks/useAuth";
+import { useTheme } from "../../hooks/useTheme";
 import { BehaviorPattern, getItems, getPatterns } from "../../services/api";
 
 interface Props {
   user: AuthUser;
   onLogout: () => void;
+  onShowOnboarding?: () => void;
 }
 
 function PatternBar({ frequency }: { frequency: number }) {
@@ -16,12 +18,13 @@ function PatternBar({ frequency }: { frequency: number }) {
   );
 }
 
-export function ProfileTab({ user, onLogout }: Props) {
+export function ProfileTab({ user, onLogout, onShowOnboarding }: Props) {
   const [itemCount, setItemCount] = useState<number | null>(null);
   const [patterns, setPatterns] = useState<BehaviorPattern[] | null>(null);
   const [reconnectMsg, setReconnectMsg] = useState("");
+  const { theme, setTheme } = useTheme();
 
-  useEffect(() => {
+  const loadProfileStats = useCallback(() => {
     getItems({ status: "open", limit: 500 })
       .then((items) => setItemCount(items.length))
       .catch(() => {});
@@ -29,6 +32,23 @@ export function ProfileTab({ user, onLogout }: Props) {
       .then((p) => setPatterns(p.filter((x) => x.frequency >= 2)))
       .catch(() => setPatterns([]));
   }, []);
+
+  useEffect(() => {
+    loadProfileStats();
+  }, [loadProfileStats]);
+
+  useEffect(() => {
+    const onFocus = () => loadProfileStats();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") loadProfileStats();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [loadProfileStats]);
 
   const initials = user.name
     ? user.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
@@ -56,6 +76,27 @@ export function ProfileTab({ user, onLogout }: Props) {
         </div>
       </div>
 
+      {/* Appearance */}
+      <div className="profile-section">
+        <div className="profile-section__label">Appearance</div>
+        <div className="profile-segment" role="group" aria-label="Theme">
+          <button
+            className={`profile-segment__btn ${theme === "light" ? "profile-segment__btn--active" : ""}`}
+            onClick={() => setTheme("light")}
+            aria-pressed={theme === "light"}
+          >
+            Light
+          </button>
+          <button
+            className={`profile-segment__btn ${theme === "dark" ? "profile-segment__btn--active" : ""}`}
+            onClick={() => setTheme("dark")}
+            aria-pressed={theme === "dark"}
+          >
+            Dark
+          </button>
+        </div>
+      </div>
+
       {/* Connections */}
       <div className="profile-section">
         <div className="profile-section__label">Connected</div>
@@ -68,7 +109,7 @@ export function ProfileTab({ user, onLogout }: Props) {
           <div className="profile-connection__badge">Active</div>
         </div>
         <button
-          className="profile-signout"
+          className="profile-btn"
           onClick={() => {
             setReconnectMsg("Sign in again to refresh Google permissions.");
             onLogout();
@@ -107,6 +148,16 @@ export function ProfileTab({ user, onLogout }: Props) {
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* Help */}
+      {onShowOnboarding && (
+        <div className="profile-section">
+          <div className="profile-section__label">Help</div>
+          <button className="profile-btn" onClick={onShowOnboarding}>
+            Show welcome tour
+          </button>
         </div>
       )}
 

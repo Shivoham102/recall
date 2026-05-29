@@ -13,24 +13,26 @@ import { applyItemUpdatedTimer } from "../../services/itemUpdatedTimer";
 import { AgentChatSidebar } from "./AgentChatSidebar";
 import { coalesceProactiveTurns } from "../../utils/agentChatDisplay";
 
+// Theme-aware: each value resolves to a CSS var that differs per light/dark
+// theme (see --intent-* tokens in App.css) so badges stay legible on both.
 const TASK_TYPE_COLOR: Record<string, string> = {
-  blocker: "#ff4466",
-  task: "#00e5ff",
-  follow_up: "#ff9900",
-  follow_up_draft: "#e06c00",
-  progress: "#00ff88",
-  note: "#9988ff",
+  blocker: "var(--intent-blocker)",
+  task: "var(--intent-task)",
+  follow_up: "var(--intent-follow_up)",
+  follow_up_draft: "var(--intent-follow_up_draft)",
+  progress: "var(--intent-progress)",
+  note: "var(--intent-note)",
 };
 
 const INTENT_COLORS: Record<string, string> = {
-  task: "#00e5ff",
-  blocker: "#ff4466",
-  follow_up: "#ff9900",
-  follow_up_draft: "#e06c00",
-  progress: "#00ff88",
-  note: "#9988ff",
-  query: "#aaaaaa",
-  update: "#ffcc00",
+  task: "var(--intent-task)",
+  blocker: "var(--intent-blocker)",
+  follow_up: "var(--intent-follow_up)",
+  follow_up_draft: "var(--intent-follow_up_draft)",
+  progress: "var(--intent-progress)",
+  note: "var(--intent-note)",
+  query: "var(--intent-query)",
+  update: "var(--intent-update)",
 };
 
 const PROACTIVE_BADGE_LABELS: Record<string, string> = {
@@ -181,7 +183,7 @@ function TaskCardGrid({ cards, liveItems }: { cards: TaskCard[]; liveItems: Map<
     <div className="agent-task-cards">
       {cards.map((card) => {
         const live = liveItems.get(card.id);
-        const color = TASK_TYPE_COLOR[card.intent_type] ?? "#aaa";
+        const color = TASK_TYPE_COLOR[card.intent_type] ?? "var(--intent-query)";
         const content = live?.display_text ?? live?.content ?? card.content;
         const dueItem = live ?? card;
         const timestamp = live?.updated_at ?? card.created_at;
@@ -533,12 +535,36 @@ export function AgentTab() {
       ref={rootRef}
     >
       {!sidebarPinned && (
-        <div
-          className="agent-sidebar-hitstrip"
-          onMouseEnter={() => {
-            if (!suppressEdgePeekRef.current) setSidebarPeek(true);
-          }}
-        />
+        <>
+          <div
+            className="agent-sidebar-hitstrip"
+            onMouseEnter={() => {
+              if (!suppressEdgePeekRef.current) setSidebarPeek(true);
+            }}
+          />
+          {!sidebarVisible && (
+            <button
+              type="button"
+              className="agent-sidebar-expand"
+              title="Open chats"
+              aria-label="Open chats"
+              onClick={() => {
+                suppressEdgePeekRef.current = false;
+                setSidebarPeek(true);
+              }}
+              onMouseEnter={() => {
+                if (!suppressEdgePeekRef.current) setSidebarPeek(true);
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+                <path d="M4 2.5L8 6L4 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              {proactiveUnread && (
+                <span className="agent-sidebar-expand__dot" aria-label="New proactive updates" />
+              )}
+            </button>
+          )}
+        </>
       )}
 
       <AgentChatSidebar
@@ -606,7 +632,7 @@ export function AgentTab() {
                   t.intentType && t.role === "user" && (
                     <span
                       className="turn__badge"
-                      style={{ color: INTENT_COLORS[t.intentType] ?? "#aaa", borderColor: INTENT_COLORS[t.intentType] ?? "#aaa" }}
+                      style={{ color: INTENT_COLORS[t.intentType] ?? "var(--intent-query)" }}
                     >
                       {t.intentType.replace("_", " ")}
                     </span>
