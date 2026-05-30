@@ -37,7 +37,7 @@ async def track_goal(inp: dict) -> dict:
     try:
         await add_user_memory(
             user_id,
-            f"User wants to keep up with: {goal_text} (recurring goal, {cadence}).",
+            f"This person has a recurring {cadence} goal: {goal_text}.",
             category="routine",
             metadata={"kind": "goal", "cadence": cadence},
         )

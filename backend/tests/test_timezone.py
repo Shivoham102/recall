@@ -25,6 +25,16 @@ class TestAugmentUserTurnTimezone:
         result = _augment_user_turn("hello", "", user_tz="Not/ATimezone")
         assert "[Date:" in result
 
+    def test_user_name_injected_when_provided(self):
+        from agent import _augment_user_turn
+        result = _augment_user_turn("hello", "", user_name="Alice")
+        assert "[User name: Alice]" in result
+
+    def test_user_name_absent_when_empty(self):
+        from agent import _augment_user_turn
+        result = _augment_user_turn("hello", "")
+        assert "[User name:" not in result
+
 
 class TestCalendarDayDedupeWindow:
     def test_local_midnight_not_utc_midnight(self):

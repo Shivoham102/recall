@@ -22,6 +22,17 @@ def test_likely_memory_useful_skips_simple_capture():
     assert likely_memory_useful("Remember that I prefer concise updates")
 
 
+def test_likely_memory_useful_introspective_queries():
+    from supermemory_client import likely_memory_useful
+
+    assert likely_memory_useful("What do you know about me?")
+    assert likely_memory_useful("Tell me about myself")
+    assert likely_memory_useful("What have I told you so far?")
+    assert likely_memory_useful("Do you know my name?")
+    assert likely_memory_useful("What do you remember about me?")
+    assert likely_memory_useful("What are my preferences?")
+
+
 def test_disabled_without_api_key_returns_empty_profile(monkeypatch):
     monkeypatch.delenv("SUPERMEMORY_API_KEY", raising=False)
     monkeypatch.delenv("SUPERMEMORY_ENABLED", raising=False)

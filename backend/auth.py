@@ -29,7 +29,9 @@ def get_current_user(
     try:
         res = _get_supabase().auth.get_user(token)
         if res and res.user:
-            return {"sub": res.user.id, "email": res.user.email or ""}
+            meta = res.user.user_metadata or {}
+            name = meta.get("full_name") or meta.get("name") or ""
+            return {"sub": res.user.id, "email": res.user.email or "", "name": name}
     except Exception:
         pass
     raise HTTPException(status_code=401, detail="Invalid or expired token")

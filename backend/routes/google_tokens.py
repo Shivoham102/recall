@@ -39,4 +39,18 @@ async def store_google_tokens(
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Failed to store Google tokens") from exc
 
+    name = user.get("name", "")
+    if name:
+        try:
+            from supermemory_client import add_user_memory, make_memory_custom_id
+            cid = make_memory_custom_id(user["sub"], "fact", f"This person's name is {name}.")
+            await add_user_memory(
+                user["sub"],
+                f"This person's name is {name}.",
+                category="fact",
+                custom_id=cid,
+            )
+        except Exception as exc:
+            print(f"[google_tokens] supermemory name store failed: {exc}")
+
     return {"ok": True}

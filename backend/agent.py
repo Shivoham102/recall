@@ -94,6 +94,7 @@ def _augment_user_turn(
     draft_preferences: dict | None = None,
     user_tz: str = "UTC",
     user_memory_context: str = "",
+    user_name: str = "",
 ) -> str:
     try:
         tz = ZoneInfo(user_tz)
@@ -103,10 +104,12 @@ def _augment_user_turn(
     draft_pref_line = ""
     if draft_preferences:
         draft_pref_line = f"[Draft preferences: {json.dumps(draft_preferences)}]\n"
+    name_line = f"[User name: {user_name}]\n" if user_name else ""
     user_memory_line = f"{user_memory_context}\n\n" if user_memory_context else ""
     return (
         f"[Date: {now}]\n"
         f"[Memory context:\n{rag_context}]\n\n"
+        f"{name_line}"
         f"{user_memory_line}"
         f"{draft_pref_line}"
         f"User: {user_text}"
@@ -121,6 +124,7 @@ async def run_agentic_loop(
     rag_context: str,
     user_tz: str = "UTC",
     user_memory_context: str = "",
+    user_name: str = "",
 ) -> AsyncGenerator[dict, None]:
     """
     Async generator that yields SSE event dicts.
@@ -149,6 +153,7 @@ async def run_agentic_loop(
         session_prefs,
         user_tz=user_tz,
         user_memory_context=user_memory_context,
+        user_name=user_name,
     )
     history.append({"role": "user", "content": augmented_user})
 

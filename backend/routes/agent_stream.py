@@ -101,6 +101,7 @@ async def capture_stream(
                     rag_context,
                     user_tz=safe_tz,
                     user_memory_context=user_memory_context,
+                    user_name=user.get("name", ""),
                 ):
                     if event["type"] == "ack":
                         try:

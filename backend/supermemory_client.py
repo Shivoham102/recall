@@ -311,6 +311,13 @@ def likely_memory_useful(text: str) -> bool:
     lowered = text.lower()
     if re.search(r"\b(remind me|set (a )?reminder|timer|make that|change .* to|reschedule|update .* to)\b", lowered):
         return False
+    if re.search(
+        r"\b(know about me|about me|my preferences|who am i|what do you know"
+        r"|remember about me|tell me about myself|what have i told you"
+        r"|my name|do you know me|what do you remember)\b",
+        lowered,
+    ):
+        return True
     if re.search(r"\b(email|calendar|brief|schedule|draft|reply|follow up|what'?s on|updates?)\b", lowered):
         return True
     if re.search(r"\b(mom|dad|manager|prefer|usually|always|hate|like|building|working on|remember that)\b", lowered):
