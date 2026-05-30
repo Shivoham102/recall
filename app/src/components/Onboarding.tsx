@@ -1,4 +1,5 @@
 import { useState, ReactNode } from "react";
+import { Orb } from "./Orb/OrbCanvas";
 
 interface Props {
   onClose: () => void;
@@ -45,10 +46,7 @@ function PinnedChatVisual() {
 function IntroVisual() {
   return (
     <div className="onboarding-orb" aria-hidden="true">
-      <span className="onboarding-orb__glow" />
-      <span className="onboarding-orb__core">
-        <span className="onboarding-orb__shimmer" />
-      </span>
+      <Orb state="idle" size={72} />
     </div>
   );
 }

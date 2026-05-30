@@ -1,6 +1,7 @@
 import { getAuthHeader } from "../hooks/useAuth";
 import { getBase } from "./backend";
 import { supabase } from "./supabase";
+import * as audioLevel from "./audioLevel";
 
 export type StreamEvent =
   | { type: "transcript"; text: string }
@@ -259,6 +260,7 @@ export function playAudio(base64mp3: string, onEnd?: () => void): AudioPlaybackH
     () =>
       new Promise<void>((resolveQueue) => {
         const audio = new Audio(`data:audio/mpeg;base64,${base64mp3}`);
+        audioLevel.attachElement(audio); // pulse the orb with spoken audio
         let startedResolved = false;
         let finishedResolved = false;
 

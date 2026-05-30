@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recall orb preview</title>
+    <style>
+      body {
+        margin: 0;
+        background: radial-gradient(ellipse 80% 60% at 50% 0%, #0b1030 0%, #04050d 70%);
+        color: #cdd3f0;
+        font-family: Inter, system-ui, sans-serif;
+        min-height: 100vh;
+      }
+      h1 { text-align: center; font-weight: 600; margin: 44px 0 4px; font-size: 18px; color: #aeb6e0; }
+      p.note { text-align: center; color: #6a719a; font-size: 13px; margin: 0 16px; }
+      .grid { display: flex; flex-wrap: wrap; gap: 56px; justify-content: center; padding: 56px 24px; }
+      .cell { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+      .label { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: #7a82ad; }
+    </style>
+  </head>
+  <body>
+    <h1>Recall voice orb — states</h1>
+    <p class="note">listening reacts to live mic; speaking &amp; error animate via the synth envelope here</p>
+    <div id="root"></div>
+    <script type="module" src="/src/orb-preview.tsx"></script>
+  </body>
+</html>

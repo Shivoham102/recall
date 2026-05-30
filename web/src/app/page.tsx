@@ -1,5 +1,6 @@
 import Nav from '@/components/Nav'
 import Footer from '@/components/Footer'
+import HeroOrb from '@/components/HeroOrb'
 import DownloadButtons from '@/components/DownloadButtons'
 import FeatureCards from '@/components/FeatureCards'
 import ScrollHint from '@/components/ScrollHint'
@@ -14,12 +15,7 @@ export default function Home() {
       <Nav />
 
       <section className="hero">
-        <div className="orb-wrap">
-          <div className="orb-glow" />
-          <div className="orb">
-            <div className="orb-shimmer" />
-          </div>
-        </div>
+        <HeroOrb />
         <div className="hero-content">
           <h1>Think Less. Remember Everything.</h1>
           <p className="hero-sub">Morning brief. Smart reminders. Zero inbox anxiety.</p>

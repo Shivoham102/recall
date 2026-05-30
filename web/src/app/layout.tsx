@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   title: 'recall - your AI memory',
   description:
     'Recall is an AI-powered personal assistant that manages your email, calendar, and tasks. Wake up to a curated brief every morning.',
-  icons: { icon: '/favicon.svg' },
+  icons: { icon: '/favicon.png' },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

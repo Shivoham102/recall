@@ -7,6 +7,7 @@ import { captureStream, playAudio, getOrCreateSessionId } from "../services/api"
 import { StreamingAudioPlayer } from "../services/audioPlayer";
 import { scheduleReminder } from "../services/reminderScheduler";
 import { applyItemUpdatedTimer } from "../services/itemUpdatedTimer";
+import { Orb } from "./Orb/OrbCanvas";
 
 const HOTKEY = "Ctrl+Shift+Space";
 type ProactivePlaybackStatus = "started" | "skipped_busy" | "rejected" | "error";
@@ -191,12 +192,7 @@ export function OrbWindow() {
 
   return (
     <div className="orb-root">
-      <div className={`orb-glow orb-glow--${orbState}`} />
-      <div className={`orb-core orb-core--${orbState}`} onClick={handleToggle}>
-        <div className="orb-shimmer" />
-        <div className="orb-specular" />
-        <div className="orb-scanlines" />
-      </div>
+      <Orb state={orbState} size={88} onClick={handleToggle} />
     </div>
   );
 }

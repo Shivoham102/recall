@@ -1,3 +1,5 @@
+import * as audioLevel from "./audioLevel";
+
 export class StreamingAudioPlayer {
   private ms: MediaSource;
   private sb: SourceBuffer | null = null;
@@ -14,6 +16,7 @@ export class StreamingAudioPlayer {
     this.ms = new MediaSource();
     this.objectUrl = URL.createObjectURL(this.ms);
     this.audio = new Audio(this.objectUrl);
+    audioLevel.attachElement(this.audio); // pulse the orb with the spoken reply
 
     this.ms.addEventListener("sourceopen", () => {
       if (this.aborted) return;

@@ -100,7 +100,7 @@ nav {
   width: 380px;
   height: 380px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(0,229,255,0.10) 0%, rgba(119,0,255,0.06) 45%, transparent 70%);
+  background: radial-gradient(circle, rgba(0,229,255,0.12) 0%, rgba(0,229,255,0.05) 45%, transparent 70%);
   animation: breathe 4.5s ease-in-out infinite;
 }
 .orb {
@@ -108,16 +108,16 @@ nav {
   height: 200px;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 38% 35%, rgba(184,212,255,0.92) 0%, transparent 44%),
-    radial-gradient(circle at 66% 66%, rgba(51,102,238,0.82) 0%, transparent 54%),
-    radial-gradient(circle at 50% 50%, #1122bb 28%, #05081e 78%);
+    radial-gradient(circle at 30% 24%, rgba(255,255,255,0.9) 0%, transparent 26%),
+    radial-gradient(circle at 42% 60%, rgba(51,214,255,0.5) 0%, transparent 52%),
+    radial-gradient(circle at 50% 50%, #1b3bd6 0%, #0b1c6e 42%, #05081e 80%);
   overflow: hidden;
   position: relative;
   animation: breathe 4.5s ease-in-out infinite;
   box-shadow:
-    0 0 48px rgba(0,229,255,0.22),
-    0 0 100px rgba(119,0,255,0.12),
-    inset 0 0 48px rgba(0,0,0,0.35);
+    0 0 48px rgba(0,229,255,0.3),
+    0 0 100px rgba(0,229,255,0.12),
+    inset 0 0 48px rgba(0,0,0,0.4);
 }
 .orb-shimmer {
   position: absolute;

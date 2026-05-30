@@ -5,6 +5,7 @@ import { captureStream, playAudio, getItems, RecallItem } from "../../services/a
 import { StreamingAudioPlayer } from "../../services/audioPlayer";
 import { formatDue } from "../../utils/dateFormat";
 import { useRecorder } from "../../hooks/useRecorder";
+import { Orb } from "../Orb/OrbCanvas";
 import { TabLoading } from "../TabLoading";
 import { useAgentChats } from "../../context/AgentChatsContext";
 import { AgentStep, CalendarCard, EmailCard, TaskCard } from "../../types/agentTurn";
@@ -334,7 +335,8 @@ export function AgentTab() {
       let ackPlayer: StreamingAudioPlayer | null = null;
       let finalPlayer: StreamingAudioPlayer | null = null;
 
-      recorder.setSpeaking();
+      // Stay in "processing" (thinking) through transcript + tool calls; only
+      // flip to "speaking" when the final audio actually starts (below).
 
       for await (const event of captureStream(blob, activeSessionId)) {
         if (event.type === "transcript") {
@@ -402,6 +404,7 @@ export function AgentTab() {
           applyItemUpdatedTimer(event.item_id, event.due_at, "AgentTab");
         } else if (event.type === "audio") {
           // Legacy batch audio path — kept for backward compat
+          if (!awaitingClarification) recorder.setSpeaking();
           playAudio(event.audio_base64, () => {
             if (awaitingClarification) {
               recorder.reset();
@@ -412,6 +415,7 @@ export function AgentTab() {
           });
         } else if (event.type === "audio_chunk") {
           if (!finalPlayer) {
+            if (!awaitingClarification) recorder.setSpeaking();
             finalPlayer = new StreamingAudioPlayer(() => {
               currentFinalPlayerRef.current = null;
               if (awaitingClarification) {
@@ -461,7 +465,7 @@ export function AgentTab() {
       setOrbError(true);
       setTimeout(() => { setOrbError(false); recorder.reset(); }, 2000);
     } finally {
-      if (!doneHandled && recorder.state === "speaking") recorder.reset();
+      if (!doneHandled && (recorder.state === "speaking" || recorder.state === "processing")) recorder.reset();
     }
   }, [activeChat, activeSessionId, patchTurnInChat, recorder, replaceChatTurns, refreshChatTitleFromServer]);
 
@@ -663,12 +667,7 @@ export function AgentTab() {
         </div>
 
         <div className="agent-orb-root">
-          <div className={`orb-glow orb-glow--${orbState}`} />
-          <div className={`orb-core orb-core--${orbState}`} onClick={handleToggle}>
-            <div className="orb-shimmer" />
-            <div className="orb-specular" />
-            <div className="orb-scanlines" />
-          </div>
+          <Orb state={orbState} size={88} onClick={handleToggle} />
         </div>
       </div>
     </div>

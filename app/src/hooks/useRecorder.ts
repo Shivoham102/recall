@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from "react";
+import * as audioLevel from "../services/audioLevel";
 
 export type RecorderState = "idle" | "recording" | "processing" | "speaking";
 
@@ -9,6 +10,7 @@ export function useRecorder() {
 
   const start = useCallback(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioLevel.attachStream(stream); // drive the orb's listening ripples
     const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
       ? "audio/webm;codecs=opus"
       : "audio/webm";
@@ -29,6 +31,7 @@ export function useRecorder() {
       recorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
         recorder.stream.getTracks().forEach((t) => t.stop());
+        audioLevel.detachStream();
         setState("processing");
         resolve(blob);
       };
