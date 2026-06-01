@@ -2,12 +2,22 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-// Self-contained copy of the app's voice-orb shader (idle state) so the
-// marketing hero shows the same living orb. App build (Vite) and this site
-// (Next) are separate bundles with no shared package, so the GLSL is
-// intentionally duplicated — keep it in sync with app/src/components/Orb/orbShader.ts.
+// Self-contained copy of the app's voice-orb shader so the marketing site shows the
+// same living orb. App build (Vite) and this site (Next) are separate bundles with no
+// shared package, so the GLSL + presets are intentionally duplicated — keep in sync
+// with app/src/components/Orb/orbShader.ts.
 
 const HALO = 1.8
+
+export type OrbState = 'idle' | 'listening' | 'thinking' | 'speaking'
+
+// Mirrors orbShader.ts PRESETS (a = deep base color, b = bright hue, flow = churn speed).
+const PRESETS: Record<OrbState, { a: [number, number, number]; b: [number, number, number]; flow: number }> = {
+  idle: { a: [0.02, 0.05, 0.18], b: [0.05, 0.85, 1.0], flow: 0.16 },
+  listening: { a: [0.02, 0.06, 0.2], b: [0.25, 1.0, 1.0], flow: 0.34 },
+  thinking: { a: [0.05, 0.03, 0.2], b: [0.55, 0.25, 1.0], flow: 0.52 },
+  speaking: { a: [0.02, 0.07, 0.18], b: [0.12, 1.0, 0.82], flow: 0.3 },
+}
 
 const VERT = `
 attribute vec2 aPos;
@@ -82,11 +92,16 @@ void main(){
 }
 `.replace(/HALO_SCALE/g, HALO.toFixed(1))
 
-const COLOR_A: [number, number, number] = [0.02, 0.05, 0.18]
-const COLOR_B: [number, number, number] = [0.05, 0.85, 1.0]
-const FLOW = 0.16
-
-export default function HeroOrb({ size = 200 }: { size?: number }) {
+// `bare` renders just the canvas (no .orb-wrap) for use in the orb showcase rows.
+export default function HeroOrb({
+  size = 200,
+  state = 'idle',
+  bare = false,
+}: {
+  size?: number
+  state?: OrbState
+  bare?: boolean
+}) {
   const ref = useRef<HTMLCanvasElement | null>(null)
   const [failed, setFailed] = useState(false)
 
@@ -142,44 +157,77 @@ export default function HeroOrb({ size = 200 }: { size?: number }) {
     canvas.height = px * dpr
     gl.viewport(0, 0, canvas.width, canvas.height)
 
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
+    const preset = PRESETS[state]
     const draw = (time: number) => {
       gl.uniform2f(uRes, canvas.width, canvas.height)
       gl.uniform1f(uTime, time)
-      gl.uniform1f(uFlow, FLOW)
-      gl.uniform3f(uColorA, COLOR_A[0], COLOR_A[1], COLOR_A[2])
-      gl.uniform3f(uColorB, COLOR_B[0], COLOR_B[1], COLOR_B[2])
+      gl.uniform1f(uFlow, preset.flow)
+      gl.uniform3f(uColorA, preset.a[0], preset.a[1], preset.a[2])
+      gl.uniform3f(uColorB, preset.b[0], preset.b[1], preset.b[2])
       gl.clearColor(0, 0, 0, 0)
       gl.clear(gl.COLOR_BUFFER_BIT)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
     }
 
-    if (reduced) {
-      draw(0)
+    draw(0) // initial static frame
+
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       return () => {
         gl.deleteProgram(prog)
         gl.deleteBuffer(buf)
       }
     }
 
+    // Animate only while on screen — the page can hold many orbs at once.
     let raf = 0
+    let onScreen = false
     const start = performance.now()
     const frame = (now: number) => {
       draw((now - start) / 1000)
       raf = requestAnimationFrame(frame)
     }
-    raf = requestAnimationFrame(frame)
+    const startLoop = () => {
+      if (!raf && onScreen && !document.hidden) raf = requestAnimationFrame(frame)
+    }
+    const stopLoop = () => {
+      if (raf) {
+        cancelAnimationFrame(raf)
+        raf = 0
+      }
+    }
+
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        onScreen = entry.isIntersecting
+        if (onScreen) startLoop()
+        else stopLoop()
+      },
+      { threshold: 0.05 },
+    )
+    io.observe(canvas)
+
+    const onVisibility = () => {
+      if (document.hidden) stopLoop()
+      else startLoop()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
 
     return () => {
-      if (raf) cancelAnimationFrame(raf)
+      stopLoop()
+      io.disconnect()
+      document.removeEventListener('visibilitychange', onVisibility)
       gl.deleteProgram(prog)
       gl.deleteBuffer(buf)
     }
-  }, [size])
+  }, [size, state])
+
+  const px = Math.round(size * HALO)
 
   if (failed) {
-    // No-WebGL fallback: the CSS orb (styles in globals.css).
+    // No-WebGL fallback: CSS orb (styles in globals.css).
+    if (bare) {
+      return <span className="orb-mini-fallback" style={{ width: size, height: size }} aria-hidden />
+    }
     return (
       <div className="orb-wrap">
         <div className="orb-glow" />
@@ -188,7 +236,10 @@ export default function HeroOrb({ size = 200 }: { size?: number }) {
     )
   }
 
-  const px = Math.round(size * HALO)
+  if (bare) {
+    return <canvas ref={ref} style={{ width: px, height: px, display: 'block' }} aria-hidden />
+  }
+
   return (
     <div className="orb-wrap">
       <canvas ref={ref} style={{ width: px, height: px, display: 'block' }} />

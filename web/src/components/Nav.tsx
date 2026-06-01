@@ -6,9 +6,7 @@ export default function Nav() {
     <nav>
       <Link href="/" className="nav-logo">
         <LogoIcon size={28} />
-        <span className="wordmark">
-          recall<span className="cursor">_</span>
-        </span>
+        <span className="wordmark">Recall</span>
       </Link>
       <ul className="nav-links">
         <li>

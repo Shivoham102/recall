@@ -3,7 +3,7 @@ import Nav from '@/components/Nav'
 import Footer from '@/components/Footer'
 
 export const metadata: Metadata = {
-  title: 'Terms of Service - recall',
+  title: 'Terms of Service - Recall',
 }
 
 export default function Terms() {
@@ -13,7 +13,7 @@ export default function Terms() {
       <main className="legal-wrap">
         <p className="legal-label">Legal</p>
         <h1>Terms of Service</h1>
-        <p className="legal-date">Effective date: May 2026</p>
+        <p className="legal-date">Effective date: June 2026</p>
 
         <p>
           By downloading, installing, or using Recall, you agree to these Terms of Service. Please
@@ -50,6 +50,11 @@ export default function Terms() {
             Google Account Permissions
           </a>
           .
+        </p>
+        <p>
+          Recall&apos;s AI features process your input (voice transcripts, email and calendar
+          content) using third-party providers including Anthropic, OpenAI, Cartesia, and
+          Supermemory. See our <a href="/privacy">Privacy Policy</a> for details.
         </p>
 
         <h2>4. Acceptable use</h2>

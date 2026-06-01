@@ -7,7 +7,7 @@ export default function Footer() {
       <div className="footer-inner">
         <Link href="/" className="footer-logo">
           <LogoIcon size={20} />
-          <span className="footer-wordmark">recall</span>
+          <span className="footer-wordmark">Recall</span>
         </Link>
         <ul className="footer-links">
           <li>

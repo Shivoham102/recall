@@ -9,7 +9,7 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'recall - your AI memory',
+  title: 'Recall - AI Memory',
   description:
     'Recall is an AI-powered personal assistant that manages your email, calendar, and tasks. Wake up to a curated brief every morning.',
   icons: { icon: '/favicon.png' },
