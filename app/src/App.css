@@ -11,133 +11,131 @@
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
 :root, :root[data-theme="dark"] {
-  /* Surfaces — refined dark, lifted off pure black for a softer feel */
-  --bg:         #0a0a11;
-  --bg2:        #12121c;
-  --bg3:        #191926;
-  --border:     rgba(255,255,255,0.08);
-  --border2:    rgba(255,255,255,0.14);
+  /* Surfaces */
+  --bg:         #0D0E14;
+  --bg2:        #13141E;
+  --bg3:        #1A1B28;
+  --border:     rgba(255,255,255,0.06);
+  --border2:    rgba(255,255,255,0.10);
 
   /* Text */
-  --text:           #e7e7f3;
-  --text-secondary: rgba(220,220,240,0.66);
-  --text-muted:     rgba(205,205,235,0.42);
+  --text:           #E8EAF2;
+  --text-secondary: rgba(210,215,240,0.65);
+  --text-muted:     rgba(180,188,230,0.40);
 
-  /* Accent (the brand blue/cyan) + semantic accent helpers */
-  --cyan:           #00e5ff;
-  --purple:         #8a6bff;
-  --magenta:        #ff00cc;
-  --accent:         var(--cyan);
-  --accent-hover:   #5cf0ff;
-  --accent-contrast:#06121a;          /* text/icon on top of accent fills */
-  --accent-soft:    rgba(0,229,255,0.12);
-  --accent-border:  rgba(0,229,255,0.30);
+  /* Accent — deep sapphire, no alias chain */
+  --cyan:            #4B8EF7;
+  --purple:          #8878F0;
+  --magenta:         #C084FC;
+  --accent:          #4B8EF7;
+  --accent-hover:    #6BA3F8;
+  --accent-contrast: #030810;
+  --accent-soft:     rgba(75,142,247,0.12);
+  --accent-border:   rgba(75,142,247,0.25);
+  --accent-hover-bg: rgba(75,142,247,0.20);
 
   /* Status */
-  --green:      #00ff88;
-  --red:        #ff4466;
-  --amber:      #ffaa00;
-  --lavender:   #9988ff;
+  --green:    #4ADE80;
+  --red:      #F87171;
+  --amber:    #FBBF24;
+  --lavender: #A5B4FC;
 
-  /* Raised surfaces (cards inside tabs) */
-  --surface:        rgba(255,255,255,0.05);
-  --surface-border: rgba(255,255,255,0.12);
-  --surface-hover:  rgba(255,255,255,0.09);
+  /* Raised surfaces */
+  --surface:        rgba(255,255,255,0.04);
+  --surface-border: rgba(255,255,255,0.08);
+  --surface-hover:  rgba(255,255,255,0.07);
 
   /* Chat bubbles */
-  --bubble-user-bg:          rgba(0,229,255,0.14);
-  --bubble-user-border:      rgba(0,229,255,0.34);
-  --bubble-ai-bg:            rgba(255,255,255,0.06);
-  --bubble-ai-border:        rgba(255,255,255,0.15);
-  --bubble-proactive-bg:     rgba(153,136,255,0.10);
-  --bubble-proactive-border: rgba(153,136,255,0.30);
+  --bubble-user-bg:          rgba(75,142,247,0.08);
+  --bubble-user-border:      rgba(75,142,247,0.20);
+  --bubble-ai-bg:            rgba(255,255,255,0.03);
+  --bubble-ai-border:        rgba(255,255,255,0.07);
+  --bubble-proactive-bg:     rgba(136,120,240,0.07);
+  --bubble-proactive-border: rgba(136,120,240,0.18);
 
-  /* Intent / badge palette (bright on dark) */
-  --intent-task:            #00e5ff;
-  --intent-blocker:         #ff4466;
-  --intent-follow_up:       #ff9900;
-  --intent-follow_up_draft: #e06c00;
-  --intent-progress:        #00ff88;
-  --intent-note:            #9988ff;
-  --intent-query:           #9aa0aa;
-  --intent-update:          #ffcc00;
+  /* Intent / badge palette */
+  --intent-task:            #60A5FA;
+  --intent-blocker:         #F87171;
+  --intent-follow_up:       #FB923C;
+  --intent-follow_up_draft: #F97316;
+  --intent-progress:        #4ADE80;
+  --intent-note:            #A78BFA;
+  --intent-query:           #94A3B8;
+  --intent-update:          #FDE68A;
 
   /* Elevation */
-  --shadow-sm:  0 1px 2px rgba(0,0,0,0.40);
-  --shadow-md:  0 8px 24px rgba(0,0,0,0.45);
-  --shadow-lg:  0 24px 60px rgba(0,0,0,0.55);
+  --shadow-sm:  0 1px 3px rgba(0,0,0,0.50);
+  --shadow-md:  0 8px 32px rgba(0,0,0,0.55);
+  --shadow-lg:  0 24px 80px rgba(0,0,0,0.65);
 
-  --radius:     10px;
-  --radius-lg:  16px;
+  --radius:    10px;
+  --radius-lg: 16px;
 
-  --hover:      rgba(255,255,255,0.06);
-  --scrollbar:  rgba(255,255,255,0.16);
+  --hover:     rgba(255,255,255,0.06);
+  --scrollbar: rgba(255,255,255,0.16);
 
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── Light theme ─────────────────────────────────────────────────────
-   Soft, premium light palette (Wispr Flow / Lindy inspired): warm
-   off-white app bg, white surfaces, deep ink text, restrained accent.
-   Overriding the legacy tokens (--bg, --cyan, ...) lets the bulk of the
-   stylesheet adapt automatically via var() references. */
+/* ── Light theme ── */
 :root[data-theme="light"] {
-  --bg:         #f6f6f3;
-  --bg2:        #ffffff;
-  --bg3:        #eeeef1;
-  --border:     rgba(20,22,45,0.10);
-  --border2:    rgba(20,22,45,0.16);
+  --bg:    #F4F5F7;
+  --bg2:   #FFFFFF;
+  --bg3:   #ECEDF2;
+  --border:  rgba(20,22,45,0.09);
+  --border2: rgba(20,22,45,0.15);
 
-  --text:           #1a1b24;
-  --text-secondary: rgba(35,37,60,0.72);
-  --text-muted:     rgba(40,42,70,0.50);
+  --text:           #1A1B26;
+  --text-secondary: rgba(35,37,60,0.70);
+  --text-muted:     rgba(40,42,70,0.48);
 
-  /* Deeper cyan/teal so the accent stays legible on white surfaces */
-  --cyan:           #0891b2;
-  --purple:         #6d5efc;
-  --magenta:        #c81e8e;
-  --accent:         var(--cyan);
-  --accent-hover:   #0aa6cc;
-  --accent-contrast:#ffffff;
-  --accent-soft:    rgba(8,145,178,0.10);
-  --accent-border:  rgba(8,145,178,0.28);
+  /* Accent — deep royal blue, no alias chain */
+  --cyan:            #2563EB;
+  --purple:          #6366F1;
+  --magenta:         #A855F7;
+  --accent:          #2563EB;
+  --accent-hover:    #1D4ED8;
+  --accent-contrast: #FFFFFF;
+  --accent-soft:     rgba(37,99,235,0.10);
+  --accent-border:   rgba(37,99,235,0.28);
+  --accent-hover-bg: rgba(37,99,235,0.18);
 
-  --green:      #0c9d57;
-  --red:        #e23857;
-  --amber:      #c97a00;
-  --lavender:   #6d5efc;
+  --green:    #16A34A;
+  --red:      #EF4444;
+  --amber:    #D97706;
+  --lavender: #818CF8;
 
-  /* Raised surfaces — solid white cards with hairline border */
-  --surface:        #ffffff;
-  --surface-border: rgba(20,22,45,0.12);
-  --surface-hover:  #f0f1f4;
+  /* Raised surfaces */
+  --surface:        #FFFFFF;
+  --surface-border: rgba(20,22,45,0.10);
+  --surface-hover:  #F1F2F6;
 
-  /* Chat bubbles — deeper tints + dark text for legibility on light */
-  --bubble-user-bg:          rgba(8,145,178,0.12);
-  --bubble-user-border:      rgba(8,145,178,0.36);
-  --bubble-ai-bg:            #ffffff;
-  --bubble-ai-border:        rgba(20,22,45,0.14);
-  --bubble-proactive-bg:     rgba(109,94,252,0.09);
-  --bubble-proactive-border: rgba(109,94,252,0.30);
+  /* Chat bubbles */
+  --bubble-user-bg:          rgba(37,99,235,0.10);
+  --bubble-user-border:      rgba(37,99,235,0.28);
+  --bubble-ai-bg:            #FFFFFF;
+  --bubble-ai-border:        rgba(20,22,45,0.12);
+  --bubble-proactive-bg:     rgba(99,102,241,0.08);
+  --bubble-proactive-border: rgba(99,102,241,0.24);
 
-  /* Intent / badge palette (darker, saturated for contrast on light) */
-  --intent-task:            #0e7490;
-  --intent-blocker:         #d12048;
-  --intent-follow_up:       #b45309;
-  --intent-follow_up_draft: #9a4a00;
-  --intent-progress:        #0c8f50;
-  --intent-note:            #5b4bd6;
-  --intent-query:           #6b7280;
-  --intent-update:          #a16207;
+  /* Intent / badge palette (light — darker for legibility) */
+  --intent-task:            #1D4ED8;
+  --intent-blocker:         #DC2626;
+  --intent-follow_up:       #EA580C;
+  --intent-follow_up_draft: #C2410C;
+  --intent-progress:        #15803D;
+  --intent-note:            #7C3AED;
+  --intent-query:           #64748B;
+  --intent-update:          #92400E;
 
   --shadow-sm:  0 1px 2px rgba(20,22,55,0.06);
   --shadow-md:  0 8px 24px rgba(20,22,55,0.10);
   --shadow-lg:  0 24px 60px rgba(20,22,55,0.18);
 
-  --hover:      rgba(20,22,55,0.05);
-  --scrollbar:  rgba(20,22,55,0.22);
+  --hover:     rgba(20,22,55,0.05);
+  --scrollbar: rgba(20,22,55,0.20);
 }
 
 body { background: transparent; overflow: hidden; }
@@ -161,8 +159,7 @@ body { background: transparent; overflow: hidden; }
 /* Orb visuals are rendered by the WebGL <Orb> component (components/Orb).
    Only .orb-root (layout, above) and .orb-fallback (no-GL, below) remain. */
 
-/* ── No-WebGL fallback orb (rendered by <Orb> when getContext fails) ──
-   One hue + motion: cyan family, red only for error. State via duration/glow. */
+/* ── No-WebGL fallback orb (rendered by <Orb> when getContext fails) ── */
 .orb-fallback {
   position: relative;
   display: flex;
@@ -172,34 +169,34 @@ body { background: transparent; overflow: hidden; }
 .orb-fallback__core {
   border-radius: 50%;
   background:
-    radial-gradient(circle at 34% 30%, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.25) 10%, transparent 30%),
-    radial-gradient(circle at center, #b8f4ff 0%, #00a6c8 30%, #0b2b8c 60%, #05081e 100%);
-  box-shadow: 0 0 24px rgba(0,229,255,0.45), inset 0 -6px 14px rgba(0,0,0,0.4);
+    radial-gradient(circle at 34% 30%, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.22) 10%, transparent 32%),
+    radial-gradient(circle at center, #93C5FD 0%, #3B82F6 28%, #1E40AF 58%, #0C1228 100%);
+  box-shadow: 0 0 24px rgba(75,142,247,0.35), inset 0 -6px 14px rgba(0,0,0,0.4);
   animation: orb-fb-breathe 4.2s ease-in-out infinite;
 }
 .orb-fallback--listening .orb-fallback__core {
   animation-duration: 1.6s;
-  box-shadow: 0 0 32px rgba(0,229,255,0.75), inset 0 -6px 14px rgba(0,0,0,0.4);
+  box-shadow: 0 0 32px rgba(75,142,247,0.60), inset 0 -6px 14px rgba(0,0,0,0.4);
 }
 .orb-fallback--thinking .orb-fallback__core {
   background:
-    radial-gradient(circle at 34% 30%, rgba(255,255,255,0.85) 0%, transparent 30%),
-    radial-gradient(circle at center, #c9b3ff 0%, #7700ff 32%, #2a1080 62%, #05081e 100%);
-  box-shadow: 0 0 28px rgba(119,0,255,0.6), inset 0 -6px 14px rgba(0,0,0,0.4);
+    radial-gradient(circle at 34% 30%, rgba(255,255,255,0.82) 0%, transparent 30%),
+    radial-gradient(circle at center, #C4B5FD 0%, #7C3AED 32%, #2E1065 62%, #0C1228 100%);
+  box-shadow: 0 0 28px rgba(124,58,237,0.45), inset 0 -6px 14px rgba(0,0,0,0.4);
   animation-duration: 2s;
 }
 .orb-fallback--speaking .orb-fallback__core {
   background:
-    radial-gradient(circle at 34% 30%, rgba(255,255,255,0.9) 0%, transparent 30%),
-    radial-gradient(circle at center, #b8fff0 0%, #00d6b0 30%, #0b6a8c 60%, #05081e 100%);
+    radial-gradient(circle at 34% 30%, rgba(255,255,255,0.88) 0%, transparent 30%),
+    radial-gradient(circle at center, #A7F3D0 0%, #10B981 30%, #065F46 60%, #0C1228 100%);
   animation-duration: 1.1s;
-  box-shadow: 0 0 32px rgba(0,229,200,0.7), inset 0 -6px 14px rgba(0,0,0,0.4);
+  box-shadow: 0 0 32px rgba(16,185,129,0.45), inset 0 -6px 14px rgba(0,0,0,0.4);
 }
 .orb-fallback--error .orb-fallback__core {
   background:
-    radial-gradient(circle at 34% 30%, rgba(255,255,255,0.85) 0%, transparent 30%),
-    radial-gradient(circle at center, #ffd0d6 0%, #ff4466 34%, #aa1530 64%, #1a0307 100%);
-  box-shadow: 0 0 28px rgba(255,68,102,0.7), inset 0 -6px 14px rgba(0,0,0,0.4);
+    radial-gradient(circle at 34% 30%, rgba(255,255,255,0.82) 0%, transparent 30%),
+    radial-gradient(circle at center, #FCA5A5 0%, #EF4444 34%, #991B1B 64%, #150507 100%);
+  box-shadow: 0 0 28px rgba(239,68,68,0.50), inset 0 -6px 14px rgba(0,0,0,0.4);
   animation-duration: 0.6s;
 }
 @keyframes orb-fb-breathe { 0%,100%{transform:scale(0.9)} 50%{transform:scale(1)} }
@@ -237,9 +234,8 @@ body { background: transparent; overflow: hidden; }
   gap: 8px;
   font-weight: 700;
   font-size: 13px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.02em;
   color: var(--accent);
-  text-transform: uppercase;
   white-space: nowrap;
   padding-right: 12px;
   cursor: default;
@@ -247,16 +243,11 @@ body { background: transparent; overflow: hidden; }
 }
 
 .titlebar__dot {
-  width: 8px; height: 8px;
+  width: 7px; height: 7px;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-  animation: dot-pulse 3.2s ease-in-out infinite;
-}
-
-@keyframes dot-pulse {
-  0%,100% { box-shadow: 0 0 0 2px var(--accent-soft); }
-  50%     { box-shadow: 0 0 0 4px var(--accent-soft); }
+  opacity: 0.55;
+  flex-shrink: 0;
 }
 
 .titlebar__tabs {
@@ -331,6 +322,8 @@ body { background: transparent; overflow: hidden; }
   display: flex;
   align-items: stretch;
   align-self: stretch;
+  position: relative;
+  z-index: 10002;
   margin-left: 8px;
   gap: 0;
 }
@@ -1076,12 +1069,12 @@ body { background: transparent; overflow: hidden; }
   outline: none;
   transition: border-color 0.15s;
 }
-.agent-input:focus { border-color: rgba(0,229,255,0.4); }
+.agent-input:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-soft); }
 .agent-input::placeholder { color: var(--text-muted); }
 .agent-send {
   width: 36px; height: 36px;
-  background: rgba(0,229,255,0.12);
-  border: 1px solid rgba(0,229,255,0.25);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
   border-radius: 8px;
   color: var(--cyan);
   font-size: 16px;
@@ -1089,7 +1082,7 @@ body { background: transparent; overflow: hidden; }
   transition: background 0.15s;
   display: flex; align-items: center; justify-content: center;
 }
-.agent-send:hover:not(:disabled) { background: rgba(0,229,255,0.22); }
+.agent-send:hover:not(:disabled) { background: var(--accent-hover-bg); }
 .agent-send:disabled { opacity: 0.35; cursor: not-allowed; }
 
 
@@ -1131,6 +1124,17 @@ body { background: transparent; overflow: hidden; }
   align-self: flex-start;
 }
 .task-card__content { font-size: 13px; line-height: 1.5; color: var(--text); }
+
+/* ── Intent badge color classes (shared: TasksTab, TranscriptsTab) ── */
+.badge-type                  { color: var(--intent-query); }
+.badge-type--task            { color: var(--intent-task); }
+.badge-type--blocker         { color: var(--intent-blocker); }
+.badge-type--follow_up       { color: var(--intent-follow_up); }
+.badge-type--follow_up_draft { color: var(--intent-follow_up_draft); }
+.badge-type--progress        { color: var(--intent-progress); }
+.badge-type--note            { color: var(--intent-note); }
+.badge-type--query           { color: var(--intent-query); }
+.badge-type--update          { color: var(--intent-update); }
 .task-card__footer {
   display: flex;
   align-items: center;
@@ -1177,7 +1181,7 @@ body { background: transparent; overflow: hidden; }
   padding: 6px 10px;
   transition: border-color 0.15s;
 }
-.transcripts-search:focus-within { border-color: rgba(0,229,255,0.35); }
+.transcripts-search:focus-within { border-color: var(--accent-border); }
 .transcripts-search__icon { color: var(--text-muted); font-size: 14px; }
 .transcripts-search__input {
   flex: 1;
@@ -1261,7 +1265,7 @@ body { background: transparent; overflow: hidden; }
 }
 .transcript-entry--hover .transcript-entry__copy { opacity: 1; }
 .transcript-entry__copy:hover { color: var(--text); background: rgba(255,255,255,0.07); }
-.transcript-entry__copy--done { color: var(--green) !important; border-color: rgba(0,255,136,0.4) !important; }
+.transcript-entry__copy--done { color: var(--green) !important; border-color: rgba(74,222,128,0.35) !important; }
 
 
 /* ═══════════════════════════════════════════
@@ -1538,22 +1542,16 @@ body { background: transparent; overflow: hidden; }
   width: 320px;
 }
 
-.login-logo {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.login-orb-wrap {
+  margin-bottom: 4px;
+}
+
+.login-wordmark {
   font-size: 22px;
   font-weight: 600;
   color: var(--text);
   letter-spacing: -0.02em;
-}
-
-.login-logo__dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-soft);
+  margin-bottom: 2px;
 }
 
 .login-tagline {
@@ -1604,17 +1602,6 @@ body { background: transparent; overflow: hidden; }
   color: var(--text-muted);
   font-size: 13px;
 }
-
-.login-spinner {
-  width: 24px;
-  height: 24px;
-  border: 2px solid var(--border2);
-  border-top-color: var(--cyan);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
 
 .login-error {
   font-size: 12px;
@@ -1895,6 +1882,8 @@ body { background: transparent; overflow: hidden; }
   z-index: 9999;
 }
 
+.ls-orb { margin-bottom: 8px; }
+
 .ls-wordmark {
   display: flex;
   gap: 0.12em;
@@ -1903,24 +1892,17 @@ body { background: transparent; overflow: hidden; }
 
 .ls-letter {
   display: inline-block;
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text);
   opacity: 0;
-  /* animation-delay overridden per-letter via inline style: "stagger, stagger+650ms" */
-  animation:
-    ls-letter-in   0.35s ease forwards,
-    ls-letter-glow 3.4s ease-in-out 650ms infinite;
+  animation: ls-letter-in 0.35s ease forwards;
 }
 
 @keyframes ls-letter-in {
-  from { opacity: 0; transform: translateY(5px); }
+  from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0);   }
-}
-@keyframes ls-letter-glow {
-  0%, 100% { opacity: 0.92; }
-  50%      { opacity: 1; }
 }
 
 .ls-line {
@@ -1938,9 +1920,8 @@ body { background: transparent; overflow: hidden; }
 }
 
 .ls-tagline {
-  font-size: 10px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.06em;
   color: var(--text-muted);
   opacity: 0;
   animation: ls-tagline-in 0.45s ease 820ms forwards;
@@ -1965,14 +1946,14 @@ body { background: transparent; overflow: hidden; }
   height: 5px;
   border-radius: 50%;
   background: var(--accent);
-  animation: tl-dot-pulse 1.1s ease-in-out infinite;
+  animation: tl-dot-pulse 1.4s ease-in-out infinite;
 }
-.tl-dot:nth-child(2) { animation-delay: 0.18s; }
-.tl-dot:nth-child(3) { animation-delay: 0.36s; }
+.tl-dot:nth-child(2) { animation-delay: 0.22s; }
+.tl-dot:nth-child(3) { animation-delay: 0.44s; }
 
 @keyframes tl-dot-pulse {
-  0%, 100% { opacity: 0.25; transform: scale(0.75); }
-  50%       { opacity: 1.0; transform: scale(1.2); }
+  0%, 100% { opacity: 0.20; transform: scale(0.70); }
+  50%       { opacity: 0.85; transform: scale(1.10); }
 }
 
 /* ─────────────────────────────────────────
@@ -1983,8 +1964,6 @@ body { background: transparent; overflow: hidden; }
   .ls-line    { animation: none; transform: scaleX(1); opacity: 1; }
   .ls-tagline { animation: none; opacity: 1; }
   .tl-dot     { animation: none; opacity: 0.6; }
-  .titlebar__dot       { animation: none; }
-  .onboarding-orb__glow { animation: none; }
 }
 
 /* ── In-app update overlay ───────────────────────────────────────── */
@@ -1992,7 +1971,7 @@ body { background: transparent; overflow: hidden; }
   position: fixed;
   inset: 0;
   z-index: 10000;
-  background: rgba(8, 8, 15, 0.88);
+  background: rgba(13, 14, 20, 0.90);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2056,7 +2035,7 @@ body { background: transparent; overflow: hidden; }
   position: fixed;
   inset: 0;
   z-index: 10001;
-  background: rgba(6, 7, 14, 0.62);
+  background: rgba(13, 14, 20, 0.65);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;

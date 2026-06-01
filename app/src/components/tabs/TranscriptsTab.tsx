@@ -3,15 +3,6 @@ import { listen } from "@tauri-apps/api/event";
 import { getItems, RecallItem } from "../../services/api";
 import { TabLoading } from "../TabLoading";
 
-const TYPE_COLOR: Record<string, string> = {
-  task:      "#00e5ff",
-  blocker:   "#ff4466",
-  follow_up: "#ff9900",
-  progress:  "#00ff88",
-  note:      "#9988ff",
-  query:     "#666688",
-  update:    "#ffcc00",
-};
 
 type Group = { label: string; items: RecallItem[] };
 
@@ -115,8 +106,7 @@ export function TranscriptsTab() {
               >
                 <div className="transcript-entry__meta">
                   <span
-                    className="transcript-entry__type"
-                    style={{ color: TYPE_COLOR[item.intent_type] ?? "#888" }}
+                    className={`transcript-entry__type badge-type badge-type--${item.intent_type}`}
                   >
                     {item.intent_type.replace("_", " ")}
                   </span>

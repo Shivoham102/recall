@@ -4,6 +4,7 @@ import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { supabase } from "../services/supabase";
 import { storeGoogleTokens } from "../services/api";
+import { Orb } from "./Orb/OrbCanvas";
 
 const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -151,10 +152,10 @@ export function LoginScreen({ onLogin }: Props) {
       </div>
       <div className="login-body">
         <div className="login-card">
-          <div className="login-logo">
-            <span className="login-logo__dot" />
-            Recall
+          <div className="login-orb-wrap">
+            <Orb state={status === "waiting" ? "processing" : status === "error" ? "error" : "idle"} size={96} />
           </div>
+          <h1 className="login-wordmark">Recall</h1>
           <p className="login-tagline">Your voice-powered working memory</p>
 
           {status === "idle" && (
@@ -165,7 +166,6 @@ export function LoginScreen({ onLogin }: Props) {
 
           {status === "waiting" && (
             <div className="login-waiting">
-              <div className="login-spinner" />
               <p>Complete sign-in in your browser…</p>
               <button className="login-btn login-btn--ghost" onClick={handleCancel}>
                 Cancel

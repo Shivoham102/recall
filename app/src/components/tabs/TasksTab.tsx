@@ -3,14 +3,6 @@ import { getItems, updateItem, RecallItem } from "../../services/api";
 import { TabLoading } from "../TabLoading";
 
 const TYPE_ORDER = ["blocker", "task", "follow_up", "follow_up_draft", "progress", "note"];
-const TYPE_COLOR: Record<string, string> = {
-  blocker:        "#ff4466",
-  task:           "#00e5ff",
-  follow_up:      "#ff9900",
-  follow_up_draft: "#e06c00",
-  progress:       "#00ff88",
-  note:           "#9988ff",
-};
 
 export function TasksTab() {
   const [items, setItems] = useState<RecallItem[]>([]);
@@ -55,8 +47,7 @@ export function TasksTab() {
         {items.map((item) => (
           <div key={item.id} className="task-card">
             <span
-              className="task-card__badge"
-              style={{ color: TYPE_COLOR[item.intent_type] ?? "#aaa", borderColor: TYPE_COLOR[item.intent_type] ?? "#aaa" }}
+              className={`task-card__badge badge-type badge-type--${item.intent_type}`}
             >
               {item.intent_type.replace("_", " ")}
             </span>
