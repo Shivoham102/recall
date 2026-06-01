@@ -380,18 +380,59 @@ export interface ProactiveEventHandlingResult {
   markSeen?: boolean;
 }
 
+/** Raw proactive_jobs row as delivered by Supabase Realtime / the init backlog. */
+interface ProactiveJobRow {
+  id: string;
+  job_type: string;
+  result: ProactiveJobResult | null;
+  status: string;
+  delivered: boolean;
+  started_at: string;
+  finished_at: string | null;
+}
+
+interface ProactiveInitResponse {
+  proactive_chat_id: string;
+  jobs: ProactiveJobRow[];
+}
+
+/** Startup/reconnect handshake: inbox chat id + undelivered backlog; bumps last_checkin_at. */
+async function initProactive(): Promise<ProactiveInitResponse> {
+  const res = await authenticatedFetch(`${await getBase()}/agent/proactive/init`);
+  if (!res.ok) throw new Error(`proactive/init failed: ${res.status}`);
+  return res.json() as Promise<ProactiveInitResponse>;
+}
+
+/** Fetch the morning-brief announcement audio on demand (Realtime rows carry no audio). */
+export async function fetchProactiveAnnounceAudio(): Promise<string | null> {
+  try {
+    const res = await authenticatedFetch(`${await getBase()}/agent/proactive/announce-audio`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { audio_b64?: string | null };
+    return data.audio_b64 ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Connect to the proactive SSE stream. Calls `onEvent` for each parsed event.
- * Returns a cancel function — call it to abort the connection.
+ * Subscribe to proactive job delivery via Supabase Realtime. Calls `onEvent` for
+ * each event (`connected`, then `proactive_job`s). Returns a cancel function.
  *
- * Reconnects automatically with 5s back-off on connection drop.
+ * Delivery state lives in the DB (`proactive_jobs.delivered`), not the transport:
+ * the channel pushes live changes, while `/agent/proactive/init` drains any
+ * backlog generated while offline. The drain runs in the SUBSCRIBED callback —
+ * which fires on the initial attach and every reconnect — so the channel is
+ * always attached before we fetch (no missed rows) and reconnects re-drain.
  * Already-seen job IDs are tracked in sessionStorage to prevent duplicate delivery.
  */
 export function connectProactiveStream(
   onEvent: (event: ProactiveStreamEvent) => void | ProactiveEventHandlingResult | Promise<void | ProactiveEventHandlingResult>,
 ): () => void {
   let cancelled = false;
-  let controller: AbortController | null = null;
+  let channel: ReturnType<typeof supabase.channel> | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let checkinTimer: ReturnType<typeof setInterval> | undefined;
 
   const SEEN_KEY = "recall_proactive_seen_ids";
 
@@ -412,58 +453,76 @@ export function connectProactiveStream(
     } catch { /* quota exceeded — ignore */ }
   }
 
+  // Keep last_checkin_at fresh on a long-lived session (window focus + 6h timer),
+  // covering sessions that stay subscribed for days without a reconnect.
+  const onFocus = () => { void initProactive().catch(() => {}); };
+
   async function connect() {
-    while (!cancelled) {
-      controller = new AbortController();
-      try {
-        const base = await getBase();
-        const headers = await getAuthHeader();
-        const res = await authenticatedFetch(`${base}/agent/proactive/stream`, {
-          headers,
-          signal: controller.signal,
-        });
-        if (!res.ok || !res.body) {
-          await new Promise((r) => setTimeout(r, 5000));
-          continue;
-        }
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        while (!cancelled) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const parts = buffer.split("\n\n");
-          buffer = parts.pop() ?? "";
-          for (const part of parts) {
-            if (!part.startsWith("data: ")) continue;
-            try {
-              const event = JSON.parse(part.slice(6)) as ProactiveStreamEvent;
-              if (event.type === "proactive_job") {
-                const seenIds = getSeenIds();
-                if (seenIds.has(event.id)) continue;
-                const result = await onEvent(event);
-                if (result?.markSeen) markSeen(event.id);
-              } else {
-                await onEvent(event);
-              }
-            } catch (err) {
-              console.error("[proactive_stream] event handling failed:", err);
-            }
-          }
-        }
-      } catch (err: unknown) {
-        if (err instanceof Error && err.name === "AbortError") break;
-      }
-      if (!cancelled) await new Promise((r) => setTimeout(r, 5000));
+    if (cancelled) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const uid = session?.user?.id;
+    if (!uid) {
+      // No session yet → don't build "user_id=eq.undefined"; retry once available.
+      retryTimer = setTimeout(() => { void connect(); }, 5000);
+      return;
     }
+
+    // proactiveChatId/pending persist across this channel's reconnects (the
+    // subscribe callback fires repeatedly). A live row can arrive after SUBSCRIBED
+    // but before init returns → buffer until proactiveChatId is set.
+    let proactiveChatId: string | null = null;
+    const pending: ProactiveJobRow[] = [];
+
+    async function handleRow(row: ProactiveJobRow): Promise<void> {
+      if (proactiveChatId === null) { pending.push(row); return; }   // race: live row before init
+      if (row.status !== "done" || row.delivered) return;            // uniform gate
+      if (getSeenIds().has(row.id)) return;
+      const result = await onEvent({
+        type: "proactive_job",
+        id: row.id,
+        job_type: row.job_type,
+        result: (row.result ?? {}) as ProactiveJobResult,
+        audio_b64: null,                       // not on the row; fetched downstream
+        proactive_chat_id: proactiveChatId,    // injected from init — not a DB column
+        timestamp: row.finished_at ?? row.started_at,
+        started_at: row.started_at,
+        finished_at: row.finished_at ?? null,
+      });
+      if (result?.markSeen) markSeen(row.id);   // consumer acks; we only mark seen
+    }
+
+    channel = supabase
+      .channel(`proactive:${uid}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "proactive_jobs", filter: `user_id=eq.${uid}` },
+        (payload) => { void handleRow(payload.new as ProactiveJobRow); },
+      )
+      .subscribe(async (status) => {
+        if (cancelled || status !== "SUBSCRIBED") return;            // also fires on reconnect
+        try {
+          const { proactive_chat_id, jobs } = await initProactive();
+          proactiveChatId = proactive_chat_id;                       // unblocks handleRow
+          await onEvent({ type: "connected", proactive_chat_id });   // preserves connected handler
+          const queued = pending.splice(0);                          // flush rows that raced ahead
+          for (const row of [...jobs, ...queued]) await handleRow(row); // seenIds dedups overlaps
+        } catch (err) {
+          console.error("[proactive] init/drain failed:", err);
+        }
+      });
+
+    checkinTimer = setInterval(() => { void initProactive().catch(() => {}); }, 6 * 60 * 60 * 1000);
+    window.addEventListener("focus", onFocus);
   }
 
   void connect();
 
   return () => {
     cancelled = true;
-    controller?.abort();
+    if (retryTimer) clearTimeout(retryTimer);
+    if (checkinTimer) clearInterval(checkinTimer);
+    window.removeEventListener("focus", onFocus);
+    if (channel) void supabase.removeChannel(channel);
   };
 }
 

@@ -22,6 +22,7 @@ export function useAuth() {
   const syncUser = useCallback(async () => {
     setIsLoading(true);
     const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) supabase.realtime.setAuth(session.access_token);
     if (session?.user) {
       setUser({
         user_id: session.user.id,
@@ -38,6 +39,9 @@ export function useAuth() {
     syncUser();
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
+        // Realtime embeds the JWT in the websocket handshake; push the refreshed
+        // token so the proactive_jobs subscription keeps authorizing after rotation.
+        if (session?.access_token) supabase.realtime.setAuth(session.access_token);
         if (session?.user) {
           setUser({
             user_id: session.user.id,

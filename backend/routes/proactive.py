@@ -1,16 +1,19 @@
 """
 Proactive agent delivery routes.
 
-GET  /agent/proactive/stream   — SSE stream of undelivered proactive job results
-POST /agent/proactive/ack      — Mark a job as delivered (body: {id: str})
-POST /agent/proactive/trigger  — Manually trigger a job (body: {job_type: str, context_key?: str})
+Delivery is via Supabase Realtime: clients subscribe to their own proactive_jobs
+rows directly. These endpoints support that flow (init/backlog drain, announce
+audio, ack) rather than holding a long-lived connection.
+
+GET  /agent/proactive/init           — proactive_chat_id + undelivered backlog; bumps last_checkin_at
+GET  /agent/proactive/announce-audio — TTS for the "morning brief ready" announcement
+POST /agent/proactive/ack            — Mark a job as delivered (body: {id: str})
+POST /agent/proactive/trigger        — Manually trigger a job (body: {job_type: str, context_key?: str})
 """
 import asyncio
-import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from auth import get_current_user
@@ -21,12 +24,6 @@ from tts import synthesize
 router = APIRouter()
 
 _PROACTIVE_INBOX_TITLE = "Recall"
-_POLL_INTERVAL_S = 30
-_HEARTBEAT_S = 25
-
-
-def _sse(event: dict) -> str:
-    return f"data: {json.dumps(event)}\n\n"
 
 
 def _get_or_create_proactive_inbox(user_id: str) -> str:
@@ -67,7 +64,7 @@ def _fetch_undelivered(user_id: str, seen_ids: set[str]) -> list[dict]:
     db = get_admin_db()
     res = (
         db.table("proactive_jobs")
-        .select("id, job_type, result, started_at, finished_at")
+        .select("id, job_type, result, status, delivered, started_at, finished_at")
         .eq("user_id", user_id)
         .eq("status", "done")
         .eq("delivered", False)
@@ -97,80 +94,47 @@ def _fetch_undelivered(user_id: str, seen_ids: set[str]) -> list[dict]:
     return sorted(kept, key=lambda r: r["started_at"])
 
 
-@router.get("/agent/proactive/stream")
-async def proactive_stream(
-    request: Request,
-    user: dict = Depends(get_current_user),
-):
+@router.get("/agent/proactive/init")
+async def proactive_init(user: dict = Depends(get_current_user)):
+    """
+    Startup/reconnect handshake for Realtime delivery. Returns the proactive inbox
+    chat id and the current undelivered backlog (rows generated while the client
+    was offline — Realtime only pushes changes that occur after subscribe), and
+    bumps last_checkin_at so the inactivity guard keeps generating for this user.
+    Idempotent and cheap, so the client also calls it as a periodic checkin.
+    """
     user_id: str = user["sub"]
 
-    async def event_gen():
-        # Create proactive inbox chat if needed, send chat_id so frontend can locate it
-        try:
-            chat_id = await asyncio.to_thread(_get_or_create_proactive_inbox, user_id)
-        except Exception as exc:
-            yield _sse({"type": "error", "message": f"Inbox init failed: {exc}"})
-            return
+    chat_id = await asyncio.to_thread(_get_or_create_proactive_inbox, user_id)
 
-        yield _sse({"type": "connected", "proactive_chat_id": chat_id})
-
-        # Fire-and-forget: mark user active so inactivity guard doesn't skip future crons.
-        asyncio.create_task(
-            asyncio.to_thread(
-                lambda: get_admin_db()
-                    .table("users")
-                    .update({"last_checkin_at": datetime.now(timezone.utc).isoformat()})
-                    .eq("id", user_id)
-                    .execute()
-            )
+    # Mark user active so the cron inactivity guard doesn't skip future jobs.
+    try:
+        await asyncio.to_thread(
+            lambda: get_admin_db()
+                .table("users")
+                .update({"last_checkin_at": datetime.now(timezone.utc).isoformat()})
+                .eq("id", user_id)
+                .execute()
         )
+    except Exception as exc:
+        print(f"[proactive_init] checkin bump failed: {exc}")
 
-        seen_ids: set[str] = set()
-        last_poll = 0.0
+    # Drain the backlog (also marks stale duplicate time-bounded instances delivered).
+    jobs = await asyncio.to_thread(_fetch_undelivered, user_id, set())
 
-        while True:
-            if await request.is_disconnected():
-                break
+    return {"proactive_chat_id": chat_id, "jobs": jobs}
 
-            now = asyncio.get_event_loop().time()
-            if now - last_poll >= _POLL_INTERVAL_S:
-                try:
-                    jobs = await asyncio.to_thread(_fetch_undelivered, user_id, seen_ids)
-                    for job in jobs:
-                        seen_ids.add(job["id"])
-                        audio_b64 = None
-                        if job["job_type"] == "morning_brief":
-                            try:
-                                audio_b64 = await synthesize("Your morning brief is ready.")
-                            except Exception as tts_exc:
-                                print(f"[proactive_stream] TTS failed: {tts_exc}")
-                        yield _sse({
-                            "type": "proactive_job",
-                            "id": job["id"],
-                            "job_type": job["job_type"],
-                            "result": job["result"] or {},
-                            "audio_b64": audio_b64,
-                            "proactive_chat_id": chat_id,
-                            "timestamp": job.get("finished_at") or job["started_at"],
-                            "started_at": job["started_at"],
-                            "finished_at": job.get("finished_at"),
-                        })
-                except Exception:
-                    pass
-                last_poll = now
 
-            yield _sse({"type": "heartbeat"})
-            await asyncio.sleep(_HEARTBEAT_S)
-
-    return StreamingResponse(
-        event_gen(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
+@router.get("/agent/proactive/announce-audio")
+async def proactive_announce_audio(user: dict = Depends(get_current_user)):
+    """TTS for the morning-brief announcement. Fetched on demand by the client
+    (only after its freshness guard passes) since the Realtime row carries no audio."""
+    try:
+        audio_b64 = await synthesize("Your morning brief is ready.")
+    except Exception as exc:
+        print(f"[proactive_announce_audio] TTS failed: {exc}")
+        audio_b64 = None
+    return {"audio_b64": audio_b64}
 
 
 class AckBody(BaseModel):

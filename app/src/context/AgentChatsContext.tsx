@@ -10,7 +10,7 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit, listen } from "@tauri-apps/api/event";
 import { supabase } from "../services/supabase";
-import { ackProactiveJob, connectProactiveStream, playAudio, suggestAgentChatTitle } from "../services/api";
+import { ackProactiveJob, connectProactiveStream, fetchProactiveAnnounceAudio, playAudio, suggestAgentChatTitle } from "../services/api";
 import { AgentChat, AgentTurn, CalendarCard, EmailCard, TaskCard } from "../types/agentTurn";
 import { firstUserMessageText, normalizeStoredAgentChat } from "../utils/agentChatDisplay";
 
@@ -372,20 +372,27 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
         const chatId = event.proactive_chat_id;
         proactiveChatIdRef.current = chatId;
         if (!chatsRef.current.find((c) => c.id === chatId)) {
-          void supabase
-            .from("agent_chats")
-            .select("*")
-            .eq("id", chatId)
-            .single()
-            .then(({ data }) => {
-              if (data) {
-                const chat = normalizeStoredAgentChat(data as Record<string, unknown>);
-                setChats((prev) => {
-                  if (prev.find((c) => c.id === chat.id)) return prev;
-                  return [chat, ...prev];
-                });
+          // Await the load so the inbox chat is present before the backlog drain
+          // (which runs immediately after this event) appends turns to it.
+          try {
+            const { data } = await supabase
+              .from("agent_chats")
+              .select("*")
+              .eq("id", chatId)
+              .single();
+            if (data) {
+              const chat = normalizeStoredAgentChat(data as Record<string, unknown>);
+              // Update the ref synchronously too — the proactive_job guard below
+              // reads chatsRef.current, which the state-sync effect won't refresh
+              // until after render.
+              if (!chatsRef.current.find((c) => c.id === chat.id)) {
+                chatsRef.current = [chat, ...chatsRef.current];
               }
-            });
+              setChats((prev) => (prev.find((c) => c.id === chat.id) ? prev : [chat, ...prev]));
+            }
+          } catch (err) {
+            console.warn("[proactive] failed to load proactive chat:", err);
+          }
         }
         return;
       } else if (event.type === "proactive_job") {
@@ -435,10 +442,6 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
         if (sessionStorage.getItem(ssKey)) {
           return await ackAndMark(ssKey);
         }
-        if (!event.audio_b64) {
-          console.warn("[proactive] skipping morning brief announcement: missing audio_b64", { jobId: event.id });
-          return await ackAndMark(ssKey);
-        }
 
         if (!event.finished_at) {
           console.warn("[proactive] skipping morning brief announcement: missing finished_at", { jobId: event.id });
@@ -462,22 +465,31 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
         }
 
         // Mark this brief announced synchronously, BEFORE attempting playback, so a
-        // reconnect or concurrent re-delivery can't re-announce it — the line-428
-        // guard short-circuits to ackAndMark even while the first ack is in flight.
+        // reconnect or concurrent re-delivery can't re-announce it — the earlier
+        // ssKey guard short-circuits to ackAndMark even while the first ack is in flight.
         try { sessionStorage.setItem(ssKey, "1"); } catch { /* ignore */ }
+
+        // The Realtime row carries no audio — fetch the announcement on demand,
+        // only now that the freshness guard has passed (avoids synthesizing for a
+        // stale brief drained from a previous day's backlog).
+        const audioB64 = await fetchProactiveAnnounceAudio();
+        if (!audioB64) {
+          console.warn("[proactive] morning brief announcement skipped: no audio", { jobId: event.id });
+          return await ackAndMark(ssKey);
+        }
 
         // Best-effort playback: attempt once, then ack regardless of whether audio
         // started. The brief is already displayed; audio is a bonus. Never leave the
         // job unacked — that caused re-delivery + double announcements on reconnect.
         if (await isMainForeground()) {
-          const startStatus = await playAudio(event.audio_b64).started;
+          const startStatus = await playAudio(audioB64).started;
           if (startStatus !== "started") {
             console.warn("[proactive] main brief playback did not start; acked anyway", { jobId: event.id, status: startStatus });
           }
           return await ackAndMark(ssKey);
         }
 
-        const orbStatus = await requestOrbPlayback(event.id, event.audio_b64);
+        const orbStatus = await requestOrbPlayback(event.id, audioB64);
         if (orbStatus !== "started") {
           console.warn("[proactive] orb brief playback did not start; acked anyway", { jobId: event.id, status: orbStatus });
         }

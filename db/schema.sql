@@ -370,6 +370,11 @@ DROP POLICY IF EXISTS proactive_jobs_select_own ON proactive_jobs;
 CREATE POLICY proactive_jobs_select_own ON proactive_jobs
   FOR SELECT USING ((auth.uid())::text = user_id);
 
+-- Clients subscribe to their own proactive_jobs rows via Supabase Realtime
+-- (delivery transport — replaces the long-lived SSE stream). The select-own
+-- policy above scopes each subscription to its user.
+ALTER PUBLICATION supabase_realtime ADD TABLE proactive_jobs;
+
 ALTER TABLE follow_up_threads ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS follow_up_threads_select_own ON follow_up_threads;
 CREATE POLICY follow_up_threads_select_own ON follow_up_threads

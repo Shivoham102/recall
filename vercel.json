@@ -1,9 +1,29 @@
 {
   "crons": [
-    { "path": "/jobs/follow-up-draft",  "schedule": "0 6 * * *" },
-    { "path": "/jobs/morning-brief",    "schedule": "0 7 * * *" },
-    { "path": "/jobs/follow-up-scan",   "schedule": "0 5 * * *" },
-    { "path": "/jobs/pattern-learn",    "schedule": "0 2 * * *" }
+    { "path": "/jobs/dispatch?h=0",  "schedule": "0 0 * * *" },
+    { "path": "/jobs/dispatch?h=1",  "schedule": "0 1 * * *" },
+    { "path": "/jobs/dispatch?h=2",  "schedule": "0 2 * * *" },
+    { "path": "/jobs/dispatch?h=3",  "schedule": "0 3 * * *" },
+    { "path": "/jobs/dispatch?h=4",  "schedule": "0 4 * * *" },
+    { "path": "/jobs/dispatch?h=5",  "schedule": "0 5 * * *" },
+    { "path": "/jobs/dispatch?h=6",  "schedule": "0 6 * * *" },
+    { "path": "/jobs/dispatch?h=7",  "schedule": "0 7 * * *" },
+    { "path": "/jobs/dispatch?h=8",  "schedule": "0 8 * * *" },
+    { "path": "/jobs/dispatch?h=9",  "schedule": "0 9 * * *" },
+    { "path": "/jobs/dispatch?h=10", "schedule": "0 10 * * *" },
+    { "path": "/jobs/dispatch?h=11", "schedule": "0 11 * * *" },
+    { "path": "/jobs/dispatch?h=12", "schedule": "0 12 * * *" },
+    { "path": "/jobs/dispatch?h=13", "schedule": "0 13 * * *" },
+    { "path": "/jobs/dispatch?h=14", "schedule": "0 14 * * *" },
+    { "path": "/jobs/dispatch?h=15", "schedule": "0 15 * * *" },
+    { "path": "/jobs/dispatch?h=16", "schedule": "0 16 * * *" },
+    { "path": "/jobs/dispatch?h=17", "schedule": "0 17 * * *" },
+    { "path": "/jobs/dispatch?h=18", "schedule": "0 18 * * *" },
+    { "path": "/jobs/dispatch?h=19", "schedule": "0 19 * * *" },
+    { "path": "/jobs/dispatch?h=20", "schedule": "0 20 * * *" },
+    { "path": "/jobs/dispatch?h=21", "schedule": "0 21 * * *" },
+    { "path": "/jobs/dispatch?h=22", "schedule": "0 22 * * *" },
+    { "path": "/jobs/dispatch?h=23", "schedule": "0 23 * * *" }
   ],
   "builds": [
     { "src": "web/package.json",  "use": "@vercel/next"   },
