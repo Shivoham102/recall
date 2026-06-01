@@ -503,5 +503,6 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
         text=text,
         job_type="follow_up_scan",
         task_cards=scan_task_cards,
+        deliver=False,
         metadata={"memory_context_used": bool(memory_context)},
     )

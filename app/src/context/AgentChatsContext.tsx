@@ -22,6 +22,10 @@ const MORNING_BRIEF_MAX_AGE_MS = 5 * 60 * 1000;
 const ORB_PLAYBACK_TIMEOUT_MS = 6000;
 const MAX_PLAYBACK_RETRIES = 3;
 
+// Job types that render directly in the UI — only these trigger the unread dot.
+// follow_up_scan and follow_up_draft are always filtered by coalesceProactiveTurns.
+const PROACTIVE_UNREAD_TYPES = new Set(["morning_brief", "email_triage", "pattern_learn"]);
+
 type OrbPlaybackStatus = "started" | "skipped_busy" | "rejected" | "error";
 
 interface Cursor {
@@ -387,6 +391,10 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
           console.warn("[proactive] dropping job because proactive chat is not ready:", event.id);
           return { markSeen: false };
         }
+        if (!chatsRef.current.find((c) => c.id === chatId)) {
+          console.warn("[proactive] proactive chat not yet in memory, will retry:", event.id);
+          return { markSeen: false };
+        }
         const newTurn: AgentTurn = {
           id: event.id,
           role: "proactive",
@@ -399,8 +407,10 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
           audioB64: event.audio_b64 ?? undefined,
         };
         replaceChatTurns(chatId, (prev) => [...prev, newTurn]);
-        setProactiveUnread(true);
-        try { localStorage.setItem("recall_proactive_unread", "1"); } catch { /* ignore */ }
+        if (PROACTIVE_UNREAD_TYPES.has(event.job_type)) {
+          setProactiveUnread(true);
+          try { localStorage.setItem("recall_proactive_unread", "1"); } catch { /* ignore */ }
+        }
 
         const ackAndMark = async (sessionKey?: string) => {
           const acked = await ackProactiveJob(event.id);
