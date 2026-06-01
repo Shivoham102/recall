@@ -388,12 +388,15 @@ if _google_tools_available:
                 "List upcoming Google Calendar events. "
                 "Use when the user asks what's on their calendar, their schedule, upcoming meetings, "
                 "or as part of a morning briefing alongside gmail_get_updates and recall_search. "
+                "days_ahead defaults to 2 (today + tomorrow) — keep general 'any updates' briefings "
+                "short and near-term. Only pass a larger days_ahead when the user explicitly asks "
+                "about the week or a longer range (e.g. 'what's my week look like'). "
                 "After listing, call surface_calendar with the indices of events worth highlighting."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "days_ahead": {"type": "integer", "default": 7},
+                    "days_ahead": {"type": "integer", "default": 2},
                 },
             },
         },

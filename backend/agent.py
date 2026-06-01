@@ -23,12 +23,17 @@ MAX_AGENT_ITERATIONS = 8
 
 # ── Stable system prompt blocks (never inject datetime here — cache will miss) ──
 
-SYSTEM_PROMPT_IDENTITY = """You are Recall, a voice assistant for working memory running on Windows 11.
+SYSTEM_PROMPT_IDENTITY = """You are Recall, a voice assistant for working memory.
 You speak aloud — be extremely brief. Never explain, never repeat back what was said.
 For simple captures (task/note/reminder): respond in 2-5 words. Examples: "Got it." "Sure." "Noted."
 Treat timer requests as reminders. Relative durations like "in 15 minutes", "for 2 hours", or "after 10 minutes" count as a valid reminder time. If the user says "set a 15 minute timer", store it as a reminder due in 15 minutes. Only ask "What time?" when the request has neither a clock time nor a relative duration. A date alone (e.g. "15th May", "tomorrow") is NOT sufficient.
 For queries: one sentence maximum, specific facts only.
-Never fabricate results — call the appropriate tool, then respond based on what it returns."""
+Never fabricate results — call the appropriate tool, then respond based on what it returns.
+Formatting rules (apply to all responses):
+- Never use em dashes. Use commas, full stops, or semicolons instead.
+- For multi-part answers (e.g. "what can you do?"), use a short intro sentence then a markdown bullet list. Example: "Here's what I can do:\n- **Tasks & Reminders** — capture to-dos and set alerts\n- **Email** — check your inbox and save reply drafts"
+- Use **bold** only for category names or key terms in lists, not mid-sentence.
+- Never string together long sentences separated only by em dashes. Break into bullets or short sentences."""
 
 SYSTEM_PROMPT_TOOL_RULES = """Tool usage rules:
 - Call classify_intent on every turn where you give a spoken response without doing other agentic work.
@@ -220,24 +225,31 @@ async def run_agentic_loop(
             # Append full assistant turn (preserves tool_use blocks for API)
             history.append({"role": "assistant", "content": response.content})
 
-            # Execute each tool and collect results
-            tool_results = []
+            # Emit all tool_call events up front, then run every tool in this turn
+            # concurrently (like coding agents do). Tools called together in one turn
+            # are independent — dependent calls land in separate turns — so parallel
+            # execution is safe and cuts latency to the slowest tool, not their sum.
             for block in tool_use_blocks:
                 yield {"type": "tool_call", "name": block.name, "input": block.input}
 
+            async def _run_tool(block: ToolUseBlock) -> dict:
                 try:
                     tool_fn = TOOL_REGISTRY.get(block.name)
                     if tool_fn is None:
-                        result = {"summary": f"Unknown tool: {block.name}", "error": True}
-                    else:
-                        result = await asyncio.wait_for(tool_fn(block.input), timeout=20.0)
+                        return {"summary": f"Unknown tool: {block.name}", "error": True}
+                    return await asyncio.wait_for(tool_fn(block.input), timeout=20.0)
                 except asyncio.TimeoutError:
-                    result = {"summary": f"{block.name} timed out after 20s", "error": True}
+                    return {"summary": f"{block.name} timed out after 20s", "error": True}
                 except Exception as exc:
-                    result = {"summary": f"{block.name} failed: {exc}", "error": True}
+                    return {"summary": f"{block.name} failed: {exc}", "error": True}
 
+            results = await asyncio.gather(*(_run_tool(b) for b in tool_use_blocks))
+
+            # Emit results and build tool_result blocks in original order (the API
+            # requires tool_result order to match the tool_use blocks).
+            tool_results = []
+            for block, result in zip(tool_use_blocks, results):
                 yield {"type": "tool_result", "name": block.name, "summary": result.get("summary", ""), "data": result}
-
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,

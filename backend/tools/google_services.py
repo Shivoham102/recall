@@ -422,16 +422,36 @@ async def gmail_get_updates(inp: dict) -> dict:
         result = svc.users().messages().list(
             userId="me", q=query, maxResults=40
         ).execute()
-        messages = result.get("messages", [])
+        messages = result.get("messages", [])[:25]  # bound batch fan-out
+
+        # Fetch all message details in a SINGLE batched HTTP request instead of a
+        # serial per-message loop. httplib2 isn't thread-safe, so a batch (one
+        # round trip, one thread) is the safe way to parallelize the gets.
+        details: dict[str, dict] = {}
+
+        def _on_detail(request_id, response, exception):
+            if exception is None and response is not None:
+                details[request_id] = response
+
+        batch = svc.new_batch_http_request(callback=_on_detail)
+        for i, msg in enumerate(messages):
+            batch.add(
+                svc.users().messages().get(
+                    userId="me",
+                    id=msg["id"],
+                    format="metadata",
+                    metadataHeaders=["From", "Subject", "Date"],
+                ),
+                request_id=str(i),
+            )
+        if messages:
+            batch.execute()
 
         emails = []
-        for msg in messages:
-            detail = svc.users().messages().get(
-                userId="me",
-                id=msg["id"],
-                format="metadata",
-                metadataHeaders=["From", "Subject", "Date"],
-            ).execute()
+        for i, msg in enumerate(messages):
+            detail = details.get(str(i))
+            if detail is None:
+                continue
 
             headers = {h["name"]: h["value"] for h in detail["payload"]["headers"]}
             from_raw = headers.get("From", "")
@@ -1058,7 +1078,7 @@ async def gmail_send(inp: dict) -> dict:
 
 
 async def calendar_list(inp: dict) -> dict:
-    days_ahead = int(inp.get("days_ahead", 7))
+    days_ahead = int(inp.get("days_ahead", 2))
     now = datetime.now(timezone.utc)
     end = now + timedelta(days=days_ahead)
 

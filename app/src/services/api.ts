@@ -42,10 +42,11 @@ export async function authenticatedFetch(
   return res;
 }
 
-async function* _streamEvents(form: FormData): AsyncGenerator<StreamEvent> {
+async function* _streamEvents(form: FormData, signal?: AbortSignal): AsyncGenerator<StreamEvent> {
   const res = await authenticatedFetch(`${await getBase()}/capture/stream`, {
     method: "POST",
     body: form,
+    signal,
   });
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => String(res.status));
@@ -57,9 +58,15 @@ async function* _streamEvents(form: FormData): AsyncGenerator<StreamEvent> {
   let buffer = "";
 
   while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    let result: ReadableStreamReadResult<Uint8Array>;
+    try {
+      result = await reader.read();
+    } catch (e) {
+      if ((e as DOMException).name === "AbortError") return;
+      throw e;
+    }
+    if (result.done) break;
+    buffer += decoder.decode(result.value, { stream: true });
     const parts = buffer.split("\n\n");
     buffer = parts.pop() ?? "";
     for (const part of parts) {
@@ -77,12 +84,13 @@ async function* _streamEvents(form: FormData): AsyncGenerator<StreamEvent> {
 export async function* captureStream(
   audioBlob: Blob,
   sessionId: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
   const form = new FormData();
   form.append("audio", audioBlob, "recording.webm");
   form.append("session_id", sessionId);
   form.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
-  yield* _streamEvents(form);
+  yield* _streamEvents(form, signal);
 }
 
 export async function* captureStreamText(

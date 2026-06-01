@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { listen, emit } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { captureStream, playAudio, getItems, RecallItem } from "../../services/api";
@@ -246,6 +247,8 @@ export function AgentTab() {
   const rootRef = useRef<HTMLDivElement>(null);
   const currentAckPlayerRef = useRef<StreamingAudioPlayer | null>(null);
   const currentFinalPlayerRef = useRef<StreamingAudioPlayer | null>(null);
+  const currentStreamAbortRef = useRef<AbortController | null>(null);
+  const currentAssistantTurnIdRef = useRef<string | null>(null);
 
   const refreshLiveItems = useCallback(async () => {
     try {
@@ -318,12 +321,18 @@ export function AgentTab() {
     currentFinalPlayerRef.current?.abort();
     currentAckPlayerRef.current = null;
     currentFinalPlayerRef.current = null;
+    currentStreamAbortRef.current?.abort();
+    currentStreamAbortRef.current = null;
 
     replaceChatTurns(chatId, (prev) => [
       ...prev,
       { id: userTurnId, role: "user", text: "", pending: true },
       { id: assistantTurnId, role: "assistant", text: "", steps: [], pending: true },
     ]);
+
+    const abortCtrl = new AbortController();
+    currentStreamAbortRef.current = abortCtrl;
+    currentAssistantTurnIdRef.current = assistantTurnId;
 
     let doneHandled = false;
     try {
@@ -340,7 +349,7 @@ export function AgentTab() {
       // Stay in "processing" (thinking) through transcript + tool calls; only
       // flip to "speaking" when the final audio actually starts (below).
 
-      for await (const event of captureStream(blob, activeSessionId)) {
+      for await (const event of captureStream(blob, activeSessionId, abortCtrl.signal)) {
         if (event.type === "transcript") {
           transcript = event.text;
           patchTurnInChat(chatId, userTurnId, { text: transcript, pending: false });
@@ -462,11 +471,14 @@ export function AgentTab() {
         }
       }
     } catch (err) {
+      if ((err as DOMException).name === "AbortError") return;
       console.error("[AgentTab] capture failed:", err);
       patchTurnInChat(chatId, assistantTurnId, { text: "Something went wrong.", pending: false });
       setOrbError(true);
       setTimeout(() => { setOrbError(false); recorder.reset(); }, 2000);
     } finally {
+      currentStreamAbortRef.current = null;
+      currentAssistantTurnIdRef.current = null;
       if (!doneHandled && (recorder.state === "speaking" || recorder.state === "processing")) recorder.reset();
     }
   }, [activeChat, activeSessionId, patchTurnInChat, recorder, replaceChatTurns, refreshChatTitleFromServer]);
@@ -492,8 +504,18 @@ export function AgentTab() {
       recorder.start().catch(() => {});
     } else if (recorder.state === "recording") {
       void handleStop();
+    } else if (recorder.state === "speaking") {
+      currentFinalPlayerRef.current?.abort();
+      currentFinalPlayerRef.current = null;
+      currentStreamAbortRef.current?.abort();
+      currentStreamAbortRef.current = null;
+      if (currentAssistantTurnIdRef.current && activeChatId) {
+        patchTurnInChat(activeChatId, currentAssistantTurnIdRef.current, { pending: false });
+        currentAssistantTurnIdRef.current = null;
+      }
+      recorder.reset();
     }
-  }, [handleStop, recorder]);
+  }, [activeChatId, handleStop, patchTurnInChat, recorder]);
 
   const orbState = orbError ? "error" : recorder.state;
   const sidebarVisible = sidebarPinned || sidebarPeek;
@@ -642,7 +664,9 @@ export function AgentTab() {
                 )}
                 {t.role !== "proactive" && t.steps && t.steps.length > 0 && <StepsGroup steps={t.steps} />}
                 {t.text
-                  ? <p>{t.text}</p>
+                  ? (t.role === "assistant" || t.role === "proactive"
+                      ? <div className="turn__md"><ReactMarkdown>{t.text}</ReactMarkdown></div>
+                      : <p>{t.text}</p>)
                   : (t.role === "user" && t.pending ? <p className="turn__recording">···</p> : null)
                 }
                 {t.emailCards && t.emailCards.length > 0 && <EmailCardGrid cards={t.emailCards} />}
