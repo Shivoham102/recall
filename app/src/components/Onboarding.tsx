@@ -59,7 +59,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Talk to Recall anywhere",
-    body: "Press these keys from any app to start speaking. Press them again to send. You can also click the floating orb.",
+    body: "Press these keys from any app to start speaking, and again to send. The orb stays up while Recall thinks and replies. Press again any time to interrupt and ask something new. You can also click the floating orb.",
     visual: <HotkeyVisual />,
   },
   {

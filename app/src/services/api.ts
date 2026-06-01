@@ -257,16 +257,35 @@ export interface AudioPlaybackHandle {
 }
 
 let _audioQueue: Promise<void> = Promise.resolve();
+// Bumped by stopCurrentAudio() to cancel any clips still queued; _currentStop stops
+// the one currently playing. Used for barge-in (interrupt a response/announcement).
+let _audioGen = 0;
+let _currentStop: (() => void) | null = null;
+
+/** Stop the clip currently playing and cancel everything still queued. */
+export function stopCurrentAudio(): void {
+  _audioGen++;
+  _currentStop?.();
+  _currentStop = null;
+}
 
 export function playAudio(base64mp3: string, onEnd?: () => void): AudioPlaybackHandle {
   let resolveStarted!: (value: AudioStartStatus) => void;
   let resolveFinished!: (value: AudioFinishStatus) => void;
   const started = new Promise<AudioStartStatus>((resolve) => { resolveStarted = resolve; });
   const finished = new Promise<AudioFinishStatus>((resolve) => { resolveFinished = resolve; });
+  const myGen = _audioGen;
 
   _audioQueue = _audioQueue.then(
     () =>
       new Promise<void>((resolveQueue) => {
+        // Cancelled by a barge-in before our turn in the queue — skip silently.
+        if (myGen !== _audioGen) {
+          resolveStarted("rejected");
+          resolveFinished("rejected");
+          resolveQueue();
+          return;
+        }
         const audio = new Audio(`data:audio/mpeg;base64,${base64mp3}`);
         audioLevel.attachElement(audio); // pulse the orb with spoken audio
         let startedResolved = false;
@@ -281,11 +300,16 @@ export function playAudio(base64mp3: string, onEnd?: () => void): AudioPlaybackH
         const finish = (status: AudioFinishStatus) => {
           if (finishedResolved) return;
           finishedResolved = true;
+          _currentStop = null;
           if (!startedResolved) resolveStartOnce(status === "ended" ? "started" : status);
           onEnd?.();
           resolveFinished(status);
           resolveQueue();
         };
+
+        // Lets stopCurrentAudio() halt this clip mid-play. pause() fires no event
+        // here (only "ended"/"error" are listened to), so finish() runs exactly once.
+        _currentStop = () => { audio.pause(); finish("ended"); };
 
         audio.addEventListener("ended", () => finish("ended"));
         audio.addEventListener("error", (e) => {

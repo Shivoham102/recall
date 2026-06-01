@@ -20,7 +20,6 @@ const ACTIVE_CHAT_KEY = "recall_active_chat_id";
 const LEGACY_SESSION_KEY = "recall_session_id";
 const MORNING_BRIEF_MAX_AGE_MS = 5 * 60 * 1000;
 const ORB_PLAYBACK_TIMEOUT_MS = 6000;
-const MAX_PLAYBACK_RETRIES = 3;
 
 // Job types that render directly in the UI — only these trigger the unread dot.
 // follow_up_scan and follow_up_draft are always filtered by coalesceProactiveTurns.
@@ -97,15 +96,19 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
   const dirtyIdsRef = useRef<Set<string>>(new Set());
   const flushTimerRef = useRef<number | null>(null);
   const appWindow = useRef(getCurrentWindow()).current;
-  const playbackFailCountRef = useRef<Map<string, number>>(new Map());
 
-  const isMainWindowVisible = useCallback(async () => {
+  // True only when the main window is actually in the foreground (visible, not
+  // minimized, AND focused). Mirrors OrbWindow's isMainForeground so the morning
+  // brief follows the same orb rule as reminders: if the user isn't looking at the
+  // app (unfocused or minimized to tray), route the announcement to the orb.
+  const isMainForeground = useCallback(async () => {
     try {
-      const [visible, minimized] = await Promise.all([
+      const [visible, minimized, focused] = await Promise.all([
         appWindow.isVisible(),
         appWindow.isMinimized(),
+        appWindow.isFocused(),
       ]);
-      return visible && !minimized;
+      return visible && !minimized && focused;
     } catch (err) {
       console.warn("[proactive] failed to read main window state:", err);
       return false;
@@ -406,7 +409,11 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
           timestamp: event.timestamp,
           audioB64: event.audio_b64 ?? undefined,
         };
-        replaceChatTurns(chatId, (prev) => [...prev, newTurn]);
+        // Idempotent: never append the same proactive job twice (guards against
+        // re-delivery on SSE reconnect). newTurn.id === event.id.
+        replaceChatTurns(chatId, (prev) =>
+          prev.some((t) => t.id === event.id) ? prev : [...prev, newTurn],
+        );
         if (PROACTIVE_UNREAD_TYPES.has(event.job_type)) {
           setProactiveUnread(true);
           try { localStorage.setItem("recall_proactive_unread", "1"); } catch { /* ignore */ }
@@ -454,39 +461,32 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
           return await ackAndMark(ssKey);
         }
 
-        const bumpFail = (id: string) => {
-          const n = (playbackFailCountRef.current.get(id) ?? 0) + 1;
-          playbackFailCountRef.current.set(id, n);
-          return n;
-        };
+        // Mark this brief announced synchronously, BEFORE attempting playback, so a
+        // reconnect or concurrent re-delivery can't re-announce it — the line-428
+        // guard short-circuits to ackAndMark even while the first ack is in flight.
+        try { sessionStorage.setItem(ssKey, "1"); } catch { /* ignore */ }
 
-        if (await isMainWindowVisible()) {
-          const playback = playAudio(event.audio_b64);
-          const startStatus = await playback.started;
-          if (startStatus === "started") return await ackAndMark(ssKey);
-          const failCount = bumpFail(event.id);
-          if (failCount >= MAX_PLAYBACK_RETRIES) {
-            console.warn("[proactive] main playback failed max retries; acking without audio", { jobId: event.id, status: startStatus });
-            return await ackAndMark(ssKey);
+        // Best-effort playback: attempt once, then ack regardless of whether audio
+        // started. The brief is already displayed; audio is a bonus. Never leave the
+        // job unacked — that caused re-delivery + double announcements on reconnect.
+        if (await isMainForeground()) {
+          const startStatus = await playAudio(event.audio_b64).started;
+          if (startStatus !== "started") {
+            console.warn("[proactive] main brief playback did not start; acked anyway", { jobId: event.id, status: startStatus });
           }
-          console.warn("[proactive] main playback rejected; leaving unacked for retry", { jobId: event.id, status: startStatus, attempt: failCount });
-          return { markSeen: false };
+          return await ackAndMark(ssKey);
         }
 
         const orbStatus = await requestOrbPlayback(event.id, event.audio_b64);
-        if (orbStatus === "started") return await ackAndMark(ssKey);
-        const orbFailCount = bumpFail(event.id);
-        if (orbFailCount >= MAX_PLAYBACK_RETRIES) {
-          console.warn("[proactive] orb playback failed max retries; acking without audio", { jobId: event.id, status: orbStatus });
-          return await ackAndMark(ssKey);
+        if (orbStatus !== "started") {
+          console.warn("[proactive] orb brief playback did not start; acked anyway", { jobId: event.id, status: orbStatus });
         }
-        console.warn("[proactive] orb playback did not start; leaving unacked for retry", { jobId: event.id, status: orbStatus, attempt: orbFailCount });
-        return { markSeen: false };
+        return await ackAndMark(ssKey);
       }
       return;
     });
     return cancel;
-  }, [isMainWindowVisible, replaceChatTurns, requestOrbPlayback, userId]);
+  }, [isMainForeground, replaceChatTurns, requestOrbPlayback, userId]);
 
   // Initial load and legacy migration.
   useEffect(() => {

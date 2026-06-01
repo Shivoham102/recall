@@ -1,5 +1,16 @@
 # Recall — Claude Notes
 
+## Commit messages
+
+Keep them concise. Say **what** changed — features added/patched/removed, behavior
+that changed — not **how** it's implemented. Conventional Commits subject
+(`feat:`, `fix:`, `chore:` …). Add a short bullet body only when there's more than
+one notable change. Some technical detail is fine, but no line-by-line internals,
+ref/variable names, or implementation play-by-play.
+
+Good: `fix(proactive): stop duplicate morning brief showing twice`
+Too technical: `fix: gate ackAndMark on requestGenRef so handleStop skips reset`
+
 ## Releasing
 
 **Always use the release script. Never tag manually.**
