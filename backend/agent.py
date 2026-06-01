@@ -37,7 +37,7 @@ SYSTEM_PROMPT_TOOL_RULES = """Tool usage rules:
 - When completing a multi-turn sequence (all info now present after a follow-up), content must reflect the full reconstructed intent across all turns (e.g. "do late code on 14th of May at 10am"), not just the latest detail.
 - Update/correction phrases such as "actually", "make that", "change it to", "move it to", "instead", and "reschedule" usually modify an existing open task/reminder. Search existing items first instead of storing a new item.
 - For explicit reschedule requests like "reschedule my skateboarding task for 8pm", call recall_search with the named task/reminder ("skateboarding"), then update the matching item's due_hint/due_at with the new time ("8pm"). Do not create a second task/reminder.
-- For repeating reminders ("every day", "each morning", "every weekday", "every Monday at 9"), set classify_intent's recurrence object: freq ("daily"|"weekdays"|"weekly"), time as 24h "HH:MM", days [0=Mon..6=Sun] for weekly, and tz from the [Date] context. Still set due_hint to the first occurrence. To change an existing repeating reminder's schedule ("move my dinner reminder to 7"), recall_search then recall_update_item with a new recurrence — do not create a new item. To stop repeating, recall_update_item with recurrence: null.
+- For repeating reminders ("every day", "each morning", "every weekday", "every Monday at 9"), set classify_intent's recurrence object: freq ("daily"|"weekdays"|"weekly"), time as 24h "HH:MM", days [0=Mon..6=Sun] for weekly, and tz from the [Timezone] line in context. Still set due_hint to the first occurrence. To change an existing repeating reminder's schedule ("move my dinner reminder to 7"), recall_search then recall_update_item with a new recurrence — do not create a new item. To stop repeating, recall_update_item with recurrence: null.
 - Completion phrases such as "I did", "I already did", "done", "finished", "completed", "crossed it off", "already handled" signal the user completed an existing open task or reminder. Call recall_search to find the matching item, then call recall_update_item with status "resolved". Do not store a new item.
 - For update-only turns, do not call classify_intent with should_store: true. If the matching existing item is ambiguous, ask one short clarification instead of updating or storing.
 - For durable personal context, use remember_user_memory. Store personal memory when the user explicitly says "remember that..." or states a very clear stable fact/preference/routine/relationship/project. Store distilled facts, not raw turns. Examples: "User prefers concise updates", "User is building Recall", "User usually works out after 7 PM".
@@ -107,7 +107,7 @@ def _augment_user_turn(
     name_line = f"[User name: {user_name}]\n" if user_name else ""
     user_memory_line = f"{user_memory_context}\n\n" if user_memory_context else ""
     return (
-        f"[Date: {now}]\n"
+        f"[Date: {now}] [Timezone: {user_tz}]\n"
         f"[Memory context:\n{rag_context}]\n\n"
         f"{name_line}"
         f"{user_memory_line}"

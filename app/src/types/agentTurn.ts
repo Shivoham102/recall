@@ -35,6 +35,7 @@ export interface TaskCard {
   due_at?: string | null;
   display_text?: string | null;
   link?: string | null;
+  recurrence?: { freq: "daily" | "weekdays" | "weekly"; time: string; days?: number[]; tz: string } | null;
 }
 
 export interface AgentTurn {

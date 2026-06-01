@@ -6,7 +6,7 @@ from datetime import datetime, time as _time, timedelta, timezone as _tz
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
 
-def _is_valid_iana(tz: str) -> bool:
+def is_valid_iana(tz: str) -> bool:
     try:
         zoneinfo.ZoneInfo(tz)
         return True
@@ -41,7 +41,7 @@ def next_occurrence(recurrence: dict, after: datetime) -> str:
         a single strictly-future UTC instant.
     """
     tz_name = recurrence.get("tz") or "UTC"
-    if not _is_valid_iana(tz_name):
+    if not is_valid_iana(tz_name):
         tz_name = "UTC"
     tz = zoneinfo.ZoneInfo(tz_name)
 
@@ -76,7 +76,7 @@ def next_occurrence(recurrence: dict, after: datetime) -> str:
 def parse_due_at(due_hint: str | None, timezone: str = "UTC") -> str | None:
     if not due_hint:
         return None
-    if not _is_valid_iana(timezone):
+    if not is_valid_iana(timezone):
         timezone = "UTC"
     parsed = dateparser.parse(
         due_hint,

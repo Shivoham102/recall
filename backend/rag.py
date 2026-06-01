@@ -2,7 +2,7 @@ import os
 from datetime import datetime, timezone
 from openai import OpenAI
 from db import get_db
-from time_utils import next_occurrence, recurrence_due_hint
+from time_utils import next_occurrence, recurrence_due_hint, is_valid_iana
 import context
 
 _openai: OpenAI | None = None
@@ -52,6 +52,9 @@ def store_item(
     # Ensure due_hint is non-null so the Tasks/Reminders split treats it as a reminder.
     if recurrence:
         try:
+            tz_val = recurrence.get("tz") or ""
+            if not is_valid_iana(tz_val):
+                recurrence = {**recurrence, "tz": context.current_user_tz.get("UTC")}
             row["recurrence"] = recurrence
             due_at = next_occurrence(recurrence, datetime.now(timezone.utc))
             if not due_hint:

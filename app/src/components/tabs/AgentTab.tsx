@@ -3,7 +3,7 @@ import { listen, emit } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { captureStream, playAudio, getItems, RecallItem } from "../../services/api";
 import { StreamingAudioPlayer } from "../../services/audioPlayer";
-import { formatDue } from "../../utils/dateFormat";
+import { formatDue, formatRecurrence } from "../../utils/dateFormat";
 import { useRecorder } from "../../hooks/useRecorder";
 import { Orb } from "../Orb/OrbCanvas";
 import { TabLoading } from "../TabLoading";
@@ -203,9 +203,11 @@ function TaskCardGrid({ cards, liveItems }: { cards: TaskCard[]; liveItems: Map<
             <p className="task-card__content">{content}</p>
             <div className="task-card__footer">
               <span className="task-card__date">{fmt(timestamp)}</span>
-              {(dueItem.due_hint || dueItem.due_at) && (
+              {dueItem.recurrence ? (
+                <span className="task-card__due">{formatRecurrence(dueItem.recurrence).toLowerCase()}</span>
+              ) : (dueItem.due_hint || dueItem.due_at) ? (
                 <span className="task-card__due">due: {formatDue(dueItem).toLowerCase()}</span>
-              )}
+              ) : null}
             </div>
           </div>
         );

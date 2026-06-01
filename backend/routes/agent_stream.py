@@ -9,7 +9,7 @@ import base64
 from tts import synthesize, synthesize_stream
 from auth import get_current_user
 from db import get_admin_db
-from time_utils import parse_due_at, _is_valid_iana
+from time_utils import parse_due_at, is_valid_iana
 from supermemory_client import format_memory_context, get_user_profile, likely_memory_useful
 import context
 
@@ -62,7 +62,7 @@ async def capture_stream(
     if not transcript:
         raise HTTPException(status_code=422, detail="Empty transcript")
 
-    safe_tz = timezone if (timezone and _is_valid_iana(timezone)) else "UTC"
+    safe_tz = timezone if (timezone and is_valid_iana(timezone)) else "UTC"
 
     # Scope user_id for retrieve_similar, then reset — generator handles its own scope
     _uid_tok = context.current_user_id.set(user["sub"])

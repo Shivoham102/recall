@@ -53,7 +53,7 @@ TOOL_DEFINITIONS = [
                             "items": {"type": "integer"},
                             "description": "weekly only: weekday numbers 0=Mon..6=Sun, e.g. [0,2,4]",
                         },
-                        "tz": {"type": "string", "description": "IANA tz from the Date context, e.g. 'America/Los_Angeles'"},
+                        "tz": {"type": "string", "description": "IANA tz from the [Timezone] line in context, e.g. 'America/Los_Angeles'"},
                     },
                     "required": ["freq", "time", "tz"],
                 },

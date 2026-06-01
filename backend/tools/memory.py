@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import context
 from db import get_db
 from rag import embed, retrieve_similar
-from time_utils import parse_due_at, next_occurrence, recurrence_due_hint
+from time_utils import parse_due_at, next_occurrence, recurrence_due_hint, is_valid_iana
 
 # Module-level cache so surface_tasks can look up by index (single-user app)
 _last_task_fetch: list = []
@@ -35,6 +35,7 @@ async def recall_search(inp: dict) -> dict:
             "created_at": i["created_at"],
             "due_hint": i.get("due_hint"),
             "due_at": i.get("due_at"),
+            "recurrence": i.get("recurrence"),
         }
         for i in items
     ]
@@ -93,6 +94,9 @@ async def recall_update_item(inp: dict) -> dict:
             update["recurrence"] = None  # stop repeating; due_hint/due_at left as-is unless also cleared
         else:
             try:
+                tz_val = recurrence.get("tz") or ""
+                if not is_valid_iana(tz_val):
+                    recurrence = {**recurrence, "tz": context.current_user_tz.get("UTC")}
                 next_due = next_occurrence(recurrence, datetime.now(timezone.utc))
             except Exception:
                 return {
