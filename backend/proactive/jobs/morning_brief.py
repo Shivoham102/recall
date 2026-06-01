@@ -15,7 +15,7 @@ from proactive.loop import run_headless_loop
 from proactive.runner import ProactiveResult
 
 _SYSTEM_PROMPT_TEMPLATE = """\
-You are generating a morning brief. Curate ruthlessly — show only what genuinely matters.
+You are generating a morning brief. Curate ruthlessly. Show only what genuinely matters.
 
 Run these three tool calls in order:
 1. calendar_list with days_ahead=1
@@ -31,9 +31,9 @@ call surface_cards with indices=[] (empty — do not surface junk).
 - surface_tasks: only tasks that are overdue or due today
 
 Finally write ONE summary line. Format exactly:
-  Morning brief — {{weekday}}, {{month}} {{day}} · {{N}} event(s) · {{N}} email(s) · {{N}} task(s)
+  Morning brief: {{weekday}}, {{month}} {{day}} · {{N}} event(s) · {{N}} email(s) · {{N}} task(s)
 Omit a section if count is zero (e.g. no tasks → omit "· 0 tasks").
-Write nothing else — no greetings, no explanations.\
+Write nothing else. No greetings, no explanations.\
 """
 
 _MEMORY_INSTRUCTIONS = """
@@ -151,7 +151,7 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
         tool_registry=PROACTIVE_TOOL_REGISTRY,
     )
 
-    text = loop_result.text or f"Morning brief — {today}"
+    text = loop_result.text or f"Morning brief: {today}"
     print(f"[morning_brief] loop done text_len={len(text)}")
 
     # Append up to 3 pending suggestions (admin client bypasses RLS — scope user_id manually).

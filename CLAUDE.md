@@ -1,5 +1,13 @@
 # Recall — Claude Notes
 
+## User-facing text
+
+Never use em dashes (—) in any text a user will see: UI/display strings, onboarding
+copy, and agent-generated or hardcoded output (spoken responses, brief/triage/suggestion
+text, and system-prompt examples the model will mimic). Use commas, periods, colons,
+or semicolons instead. Code comments and developer logs are exempt — this rule is about
+product text in `app/` and agent strings in `backend/`.
+
 ## Commit messages
 
 Keep them concise. Say **what** changed — features added/patched/removed, behavior

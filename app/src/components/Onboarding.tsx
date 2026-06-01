@@ -1,5 +1,5 @@
 import { useState, ReactNode } from "react";
-import { Orb } from "./Orb/OrbCanvas";
+import { Orb, type OrbState } from "./Orb/OrbCanvas";
 
 interface Props {
   onClose: () => void;
@@ -51,6 +51,54 @@ function IntroVisual() {
   );
 }
 
+// The four states the orb cycles through during a normal interaction. "error"
+// is an edge state and intentionally omitted here.
+const ORB_STATES: { state: OrbState; label: string }[] = [
+  { state: "idle", label: "Idle" },
+  { state: "recording", label: "Listening" },
+  { state: "processing", label: "Thinking" },
+  { state: "speaking", label: "Speaking" },
+];
+
+function OrbStatesVisual() {
+  return (
+    <div className="onboarding-orb-states" aria-hidden="true">
+      {ORB_STATES.map(({ state, label }) => (
+        <div key={state} className="onboarding-orb-state">
+          <Orb state={state} size={52} />
+          <span className="onboarding-orb-state__label">{label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CaptureVisual() {
+  return (
+    <div className="onboarding-capture" aria-hidden="true">
+      <div className="onboarding-capture__quote">"I parked on level 3, section B"</div>
+      <div className="onboarding-capture__chip">
+        <span className="onboarding-capture__check">✓</span> Saved to memory
+      </div>
+    </div>
+  );
+}
+
+function TrayVisual() {
+  return (
+    <div className="onboarding-tray" aria-hidden="true">
+      <div className="onboarding-tray__bar">
+        <span className="onboarding-tray__app" />
+        <span className="onboarding-tray__app" />
+        <span className="onboarding-tray__recall">
+          <Orb state="idle" size={44} />
+        </span>
+        <span className="onboarding-tray__clock">9:41</span>
+      </div>
+    </div>
+  );
+}
+
 const STEPS: Step[] = [
   {
     title: "Welcome to Recall",
@@ -63,9 +111,24 @@ const STEPS: Step[] = [
     visual: <HotkeyVisual />,
   },
   {
+    title: "Reading the orb",
+    body: "The orb shows what Recall is doing at a glance: calm blue when idle, brighter as it listens to you, swirling violet while it thinks, and a green pulse as it speaks back.",
+    visual: <OrbStatesVisual />,
+  },
+  {
+    title: "Just say it, Recall remembers",
+    body: "Tell Recall to remember something, like where you parked, a book a friend recommended, or a promise you made, and it's saved. Ask for it later in plain language and it comes right back.",
+    visual: <CaptureVisual />,
+  },
+  {
     title: "Your pinned Recall chat",
-    body: "The Recall chat stays pinned at the top of your sidebar. Morning briefs, email triage, and follow-ups arrive there automatically, no prompting needed.",
+    body: "The Recall chat stays pinned at the top of your sidebar. Morning briefs, email triage, and follow-ups arrive there automatically. You can also ask Recall to draft an email reply or triage your calendar and inbox any time.",
     visual: <PinnedChatVisual />,
+  },
+  {
+    title: "Always a breath away",
+    body: "Closing the window doesn't quit Recall. It keeps running in your system tray with the orb floating nearby, so you can capture and recall from any app, any time.",
+    visual: <TrayVisual />,
   },
 ];
 

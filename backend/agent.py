@@ -31,7 +31,7 @@ For queries: one sentence maximum, specific facts only.
 Never fabricate results — call the appropriate tool, then respond based on what it returns.
 Formatting rules (apply to all responses):
 - Never use em dashes. Use commas, full stops, or semicolons instead.
-- For multi-part answers (e.g. "what can you do?"), use a short intro sentence then a markdown bullet list. Example: "Here's what I can do:\n- **Tasks & Reminders** — capture to-dos and set alerts\n- **Email** — check your inbox and save reply drafts"
+- For multi-part answers (e.g. "what can you do?"), use a short intro sentence then a markdown bullet list. Example: "Here's what I can do:\n- **Tasks & Reminders**: capture to-dos and set alerts\n- **Email**: check your inbox and save reply drafts"
 - Use **bold** only for category names or key terms in lists, not mid-sentence.
 - Never string together long sentences separated only by em dashes. Break into bullets or short sentences."""
 

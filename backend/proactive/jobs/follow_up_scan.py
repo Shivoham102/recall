@@ -488,14 +488,14 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
 
     if not scan_task_cards:
         return ProactiveResult(
-            text="Follow-up scan complete — nothing pending",
+            text="Follow-up scan complete, nothing pending",
             job_type="follow_up_scan",
             deliver=False,
         )
 
     count = len(scan_task_cards)
     new_count = len(new_items)
-    text = f"Follow-up scan — {count} pending follow-up{'s' if count != 1 else ''}"
+    text = f"Follow-up scan: {count} pending follow-up{'s' if count != 1 else ''}"
     if new_count:
         text += f" ({new_count} new)"
 

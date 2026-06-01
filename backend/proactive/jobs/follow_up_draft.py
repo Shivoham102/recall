@@ -450,12 +450,12 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
 
     if not task_cards:
         return ProactiveResult(
-            text="Follow-up draft — nothing to draft",
+            text="Follow-up draft: nothing to draft",
             job_type="follow_up_draft",
             deliver=False,
         )
     return ProactiveResult(
-        text=f"Follow-up draft — {len(task_cards)} draft{'s' if len(task_cards) != 1 else ''} created",
+        text=f"Follow-up draft: {len(task_cards)} draft{'s' if len(task_cards) != 1 else ''} created",
         job_type="follow_up_draft",
         task_cards=task_cards,
     )

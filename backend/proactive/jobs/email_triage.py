@@ -36,13 +36,13 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
 
     if not high_priority:
         return ProactiveResult(
-            text="Email triage — no high-priority items",
+            text="Email triage: no high-priority items",
             job_type="email_triage",
             deliver=False,
         )
 
     count = len(high_priority)
-    text = f"Email triage — {count} item{'s' if count != 1 else ''} need{'s' if count == 1 else ''} attention"
+    text = f"Email triage: {count} item{'s' if count != 1 else ''} need{'s' if count == 1 else ''} attention"
     return ProactiveResult(
         text=text,
         job_type="email_triage",

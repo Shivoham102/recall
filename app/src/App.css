@@ -412,14 +412,14 @@ body { background: transparent; overflow: hidden; }
   top: 50%;
   transform: translateY(-50%);
   z-index: 13;
-  width: 22px;
-  height: 50px;
+  width: 24px;
+  height: 56px;
   padding: 0;
-  border: 1px solid var(--border2);
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border2));
   border-left: none;
-  border-radius: 0 9px 9px 0;
-  background: var(--bg2);
-  color: var(--text-secondary);
+  border-radius: 0 10px 10px 0;
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg2));
+  color: var(--accent);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -429,9 +429,9 @@ body { background: transparent; overflow: hidden; }
 }
 
 .agent-sidebar-expand:hover {
-  background: var(--bg3);
-  color: var(--text);
-  border-color: var(--border2);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
   box-shadow: var(--shadow-lg);
 }
 
@@ -491,7 +491,7 @@ body { background: transparent; overflow: hidden; }
 }
 
 .agent-sidebar__new { flex: 1; text-align: left; }
-.agent-sidebar__pin { width: 36px; }
+.agent-sidebar__pin { width: 36px; display: inline-flex; align-items: center; justify-content: center; }
 
 .agent-sidebar__error,
 .agent-sidebar__save-error {
@@ -2034,8 +2034,10 @@ body { background: transparent; overflow: hidden; }
 
 .onboarding-card {
   position: relative;
-  width: 380px;
+  width: 480px;
   max-width: calc(100vw - 48px);
+  height: 500px;
+  box-sizing: border-box;
   background: var(--bg2);
   border: 1px solid var(--border2);
   border-radius: var(--radius-lg);
@@ -2049,7 +2051,8 @@ body { background: transparent; overflow: hidden; }
 
 .onboarding-visual {
   width: 100%;
-  min-height: 96px;
+  height: 140px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2073,6 +2076,7 @@ body { background: transparent; overflow: hidden; }
 .onboarding-dots {
   display: flex;
   gap: 7px;
+  margin-top: auto;
   margin-bottom: 22px;
 }
 
@@ -2182,6 +2186,105 @@ body { background: transparent; overflow: hidden; }
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Orb states (the four-orb explainer step) */
+.onboarding-orb-states {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.onboarding-orb-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.onboarding-orb-state__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+/* Capture / memory mock */
+.onboarding-capture {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.onboarding-capture__quote {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 14px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-secondary);
+  max-width: 280px;
+}
+
+.onboarding-capture__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.onboarding-capture__check {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* System-tray mock (uses the real orb as Recall's tray presence) */
+.onboarding-tray {
+  display: flex;
+  justify-content: center;
+}
+
+.onboarding-tray__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+}
+
+.onboarding-tray__app {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--border2);
+  opacity: 0.7;
+}
+
+.onboarding-tray__recall {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+}
+
+.onboarding-tray__clock {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-left: 4px;
 }
 
 /* Pinned chat mock (step 3) */

@@ -78,7 +78,7 @@ def _detect_recurring_reminders(db, user_id: str, user_tz: str, cutoff_iso: str)
             "recurrence": recurrence,
             "source_item_ids": [o[1] for o in occ],
         }
-        title = f"You've set “{content}” {len(occ)} times — make it a daily reminder?"
+        title = f"You've set “{content}” {len(occ)} times. Make it a daily reminder?"
         action = upsert_suggestion(db, user_id, "recurring_reminder", norm, title, payload)
         if action in ("inserted", "rearmed"):
             written += 1
@@ -116,7 +116,7 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
 
     if not items:
         return ProactiveResult(
-            text="Pattern learning complete — not enough data yet",
+            text="Pattern learning complete, not enough data yet",
             job_type="pattern_learn",
             deliver=False,
         )
@@ -202,7 +202,7 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
     if newly_promoted:
         labels_str = ", ".join(newly_promoted)
         text = (
-            f"I've learned your patterns — starting to include {labels_str} "
+            f"I've learned your patterns, starting to include {labels_str} "
             "in your morning brief automatically."
         )
         return ProactiveResult(text=text, job_type="pattern_learn", deliver=True)

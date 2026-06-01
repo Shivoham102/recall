@@ -89,7 +89,9 @@ export function Orb({ state, size = 88, onClick, className }: Props) {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Supersample: render at >=2x the CSS box even on low-DPI displays, so small
+    // orbs (e.g. the tray icon) aren't blocky. Capped at 3x to bound buffer size.
+    const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 2), 3);
     const px = Math.round(size * HALO);
     canvas.width = px * dpr;
     canvas.height = px * dpr;

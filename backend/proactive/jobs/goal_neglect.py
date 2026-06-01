@@ -71,7 +71,7 @@ def detect_neglected_goals(db, user_id: str) -> int:
             continue
 
         goal_text = g["goal_text"]
-        title = f"You wanted to keep up with “{goal_text}” — nothing logged lately. Add a reminder?"
+        title = f"You wanted to keep up with “{goal_text}”. Nothing logged lately. Add a reminder?"
         payload = {"goal_id": g["id"], "goal_text": goal_text}
         action = upsert_suggestion(db, user_id, "neglected_goal", f"goal:{g['id']}", title, payload)
         if action in ("inserted", "rearmed"):

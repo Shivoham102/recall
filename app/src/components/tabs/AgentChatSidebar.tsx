@@ -133,8 +133,29 @@ export function AgentChatSidebar({
       onPointerLeave={onPointerLeave}
     >
       <div className="agent-sidebar__header">
-        <button type="button" className="agent-sidebar__pin" onClick={onTogglePinned} title={pinned ? "Unpin" : "Pin open"}>
-          {pinned ? "⇤" : "⇥"}
+        <button
+          type="button"
+          className="agent-sidebar__pin"
+          onClick={onTogglePinned}
+          title={pinned ? "Unpin sidebar" : "Pin sidebar open"}
+          aria-label={pinned ? "Unpin sidebar" : "Pin sidebar open"}
+          aria-pressed={pinned}
+          style={pinned ? { color: "var(--accent)" } : undefined}
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill={pinned ? "currentColor" : "none"}
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M12 17v5" />
+            <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+          </svg>
         </button>
         <button type="button" className="agent-sidebar__new" onClick={onNewChat}>+ New chat</button>
       </div>
