@@ -9,6 +9,7 @@ Requires SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env
 """
 import sys
 import os
+import asyncio
 sys.path.insert(0, os.path.dirname(__file__))
 
 from dotenv import load_dotenv
@@ -24,7 +25,9 @@ _admin = _db_module.get_admin_db()
 _db_module._client = _admin  # get_db() will return admin client; bypasses RLS
 
 from datetime import datetime, timedelta, timezone
-from routes.reminders import mark_missed, get_pending_reminders, dismiss_reminders, DismissRequest
+from routes.reminders import mark_missed, get_pending_reminders, dismiss_reminders, DismissRequest, recent_fired_reminders
+from tools.memory import recall_update_item
+import context
 
 TEST_USER_ID = "test-recall-reminders-00000000"
 TEST_USER    = {"sub": TEST_USER_ID}
@@ -152,6 +155,61 @@ def test_mark_missed_cannot_affect_other_users():
         _admin.table("users").delete().eq("id", other).execute()
 
 
+# ── recall_update_item reschedule / snooze ─────────────────────────────────────
+
+def test_update_clears_reminded_at_on_reschedule():
+    # A fired one-off (reminded_at set) rescheduled must fire again at the new time:
+    # /reminders/due needs reminded_at null, so the update must clear it.
+    reminded = datetime.now(timezone.utc).isoformat()
+    id_ = _insert(-1, status="open", reminded_at=reminded)
+    context.current_user_id.set(TEST_USER_ID)
+    context.current_user_tz.set("UTC")
+    res = asyncio.run(recall_update_item({"item_id": id_, "due_hint": "in 20 minutes"}))
+    assert res.get("updated") is True, f"update failed: {res}"
+    row = _row(id_)
+    assert row["reminded_at"] is None, "reminded_at must be cleared on reschedule"
+    assert row["status"] == "open", f"status should stay open, got {row['status']}"
+    assert datetime.fromisoformat(row["due_at"]) > datetime.now(timezone.utc), \
+        "due_at should be in the future after snooze"
+
+def test_update_reopens_missed_on_reschedule():
+    # A missed one-off snoozed must reopen — /reminders/due also requires status="open".
+    reminded = datetime.now(timezone.utc).isoformat()
+    id_ = _insert(-3, status="missed", reminded_at=reminded)
+    context.current_user_id.set(TEST_USER_ID)
+    context.current_user_tz.set("UTC")
+    res = asyncio.run(recall_update_item({"item_id": id_, "due_hint": "in 15 minutes"}))
+    assert res.get("updated") is True, f"update failed: {res}"
+    row = _row(id_)
+    assert row["status"] == "open", f"missed item must reopen on reschedule, got {row['status']}"
+    assert row["reminded_at"] is None, "reminded_at must be cleared on reschedule"
+
+def test_status_only_update_keeps_reminded_at():
+    # No due change => guard skipped => a resolved item must not be resurrected.
+    reminded = datetime.now(timezone.utc).isoformat()
+    id_ = _insert(-1, status="open", reminded_at=reminded)
+    context.current_user_id.set(TEST_USER_ID)
+    context.current_user_tz.set("UTC")
+    res = asyncio.run(recall_update_item({"item_id": id_, "status": "resolved"}))
+    assert res.get("updated") is True, f"update failed: {res}"
+    row = _row(id_)
+    assert row["reminded_at"] is not None, "status-only update must not clear reminded_at"
+    assert row["status"] == "resolved"
+
+def test_recent_fired_reminders_window():
+    now = datetime.now(timezone.utc)
+    fresh = _insert(-0.1, status="open", reminded_at=(now - timedelta(minutes=5)).isoformat())
+    _insert(-2, status="open", reminded_at=(now - timedelta(minutes=90)).isoformat())  # stale
+    _insert(  # recurring: excluded even though reminded_at is set
+        -0.1, status="open",
+        reminded_at=(now - timedelta(minutes=5)).isoformat(),
+        recurrence={"freq": "daily", "time": "06:00", "tz": "UTC"},
+    )
+    ids = [r["id"] for r in recent_fired_reminders(TEST_USER_ID, window_min=30)]
+    assert fresh in ids, "reminder fired 5m ago should be in window"
+    assert len(ids) == 1, f"only the fresh non-recurring item should match, got {ids}"
+
+
 # ── Runner ────────────────────────────────────────────────────────────────────
 
 TESTS = [
@@ -165,6 +223,10 @@ TESTS = [
     test_mark_missed_within_2h_window_ignored,
     test_mark_missed_ignores_recurring,
     test_mark_missed_cannot_affect_other_users,
+    test_update_clears_reminded_at_on_reschedule,
+    test_update_reopens_missed_on_reschedule,
+    test_status_only_update_keeps_reminded_at,
+    test_recent_fired_reminders_window,
 ]
 
 if __name__ == "__main__":

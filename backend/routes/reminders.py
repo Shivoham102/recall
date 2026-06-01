@@ -123,3 +123,25 @@ def mark_missed(user: dict = Depends(get_current_user)):
             .execute()
         )
     return {"items": items}
+
+
+def recent_fired_reminders(user_id: str, window_min: int = 30, limit: int = 3) -> list[dict]:
+    """One-off reminders that fired (or were marked missed) within the last
+    `window_min` minutes, most recent first. Lets a bare snooze ("give me 15 more
+    minutes", with no task named) resolve to the reminder that just went off.
+    Recurring items are excluded — they keep reminded_at null and roll forward."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=window_min)).isoformat()
+    result = (
+        get_db()
+        .table("recall_items")
+        .select("id, content, reminded_at")
+        .eq("user_id", user_id)
+        .is_("recurrence", "null")
+        .not_.is_("reminded_at", "null")
+        .gte("reminded_at", cutoff)
+        .in_("status", ["open", "missed"])
+        .order("reminded_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return result.data or []

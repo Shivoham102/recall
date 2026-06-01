@@ -129,6 +129,15 @@ async def recall_update_item(inp: dict) -> dict:
             update["due_hint"] = due_hint_text
             update["due_at"] = due_at
 
+    # Rescheduling moves due_at to a new time. A one-off that already fired/was
+    # missed has reminded_at set (and maybe status="missed"), which hides it from
+    # /reminders/due (needs reminded_at null AND status "open"). Clear the flag and
+    # reopen so it can fire again. Recurring items already keep reminded_at null, so
+    # this is a no-op for them. due_hint=None clears due_at, so this branch is skipped.
+    if update.get("due_at") is not None:
+        update["reminded_at"] = None
+        update.setdefault("status", "open")  # don't override an explicit status in this turn
+
     if not update:
         return {
             "summary": "No item updates provided",

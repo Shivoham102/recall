@@ -42,6 +42,7 @@ SYSTEM_PROMPT_TOOL_RULES = """Tool usage rules:
 - When completing a multi-turn sequence (all info now present after a follow-up), content must reflect the full reconstructed intent across all turns (e.g. "do late code on 14th of May at 10am"), not just the latest detail.
 - Update/correction phrases such as "actually", "make that", "change it to", "move it to", "instead", and "reschedule" usually modify an existing open task/reminder. Search existing items first instead of storing a new item.
 - For explicit reschedule requests like "reschedule my skateboarding task for 8pm", call recall_search with the named task/reminder ("skateboarding"), then update the matching item's due_hint/due_at with the new time ("8pm"). Do not create a second task/reminder.
+- Snooze/delay requests with no named task ("give me 15 more minutes", "another 10 minutes", "a bit longer", "not yet", "snooze") refer to a reminder shown under [Recently fired reminders]. If exactly one is listed, immediately call recall_update_item on it with due_hint as the delay from now ("15 more minutes" -> "in 15 minutes") and confirm briefly ("Pushed to 6:15"). Do NOT speak-and-wait here: this is the one exception to the recall_update_item confirm-first rule, because re-timing a one-off reminder is low-risk. If several are listed, ask which one. If none are listed, ask what to snooze.
 - For repeating reminders ("every day", "each morning", "every weekday", "every Monday at 9"), set classify_intent's recurrence object: freq ("daily"|"weekdays"|"weekly"), time as 24h "HH:MM", days [0=Mon..6=Sun] for weekly, and tz from the [Timezone] line in context. Still set due_hint to the first occurrence. To change an existing repeating reminder's schedule ("move my dinner reminder to 7"), recall_search then recall_update_item with a new recurrence — do not create a new item. To stop repeating, recall_update_item with recurrence: null.
 - Completion phrases such as "I did", "I already did", "done", "finished", "completed", "crossed it off", "already handled" signal the user completed an existing open task or reminder. Call recall_search to find the matching item, then call recall_update_item with status "resolved". Do not store a new item.
 - For update-only turns, do not call classify_intent with should_store: true. If the matching existing item is ambiguous, ask one short clarification instead of updating or storing.
@@ -100,6 +101,7 @@ def _augment_user_turn(
     user_tz: str = "UTC",
     user_memory_context: str = "",
     user_name: str = "",
+    recent_reminders: list[dict] | None = None,
 ) -> str:
     try:
         tz = ZoneInfo(user_tz)
@@ -111,11 +113,19 @@ def _augment_user_turn(
         draft_pref_line = f"[Draft preferences: {json.dumps(draft_preferences)}]\n"
     name_line = f"[User name: {user_name}]\n" if user_name else ""
     user_memory_line = f"{user_memory_context}\n\n" if user_memory_context else ""
+    recent_reminders_line = ""
+    if recent_reminders:
+        listed = "; ".join(
+            f'{i + 1}) "{r.get("content", "")}" id={r.get("id")}'
+            for i, r in enumerate(recent_reminders)
+        )
+        recent_reminders_line = f"[Recently fired reminders (most recent first): {listed}]\n"
     return (
         f"[Date: {now}] [Timezone: {user_tz}]\n"
         f"[Memory context:\n{rag_context}]\n\n"
         f"{name_line}"
         f"{user_memory_line}"
+        f"{recent_reminders_line}"
         f"{draft_pref_line}"
         f"User: {user_text}"
     )
@@ -130,6 +140,7 @@ async def run_agentic_loop(
     user_tz: str = "UTC",
     user_memory_context: str = "",
     user_name: str = "",
+    recent_reminders: list[dict] | None = None,
 ) -> AsyncGenerator[dict, None]:
     """
     Async generator that yields SSE event dicts.
@@ -159,6 +170,7 @@ async def run_agentic_loop(
         user_tz=user_tz,
         user_memory_context=user_memory_context,
         user_name=user_name,
+        recent_reminders=recent_reminders,
     )
     history.append({"role": "user", "content": augmented_user})
 

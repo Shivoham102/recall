@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from stt import transcribe
 from rag import retrieve_similar, store_item
 from agent import run_agentic_loop
+from routes.reminders import recent_fired_reminders
 import base64
 from tts import synthesize_stream
 from auth import get_current_user
@@ -121,6 +122,9 @@ async def capture_stream(
 
         similar = retrieve_similar(transcript)
         rag_context = _fmt_context(similar)
+        # Reminder(s) that just fired — lets a bare snooze ("give me 15 more
+        # minutes", no task named) resolve to the one that went off.
+        recent_reminders = recent_fired_reminders(user["sub"])
         user_memory_context = ""
         if likely_memory_useful(transcript):
             profile = await get_user_profile(user["sub"], transcript, timeout=1.0, allow_stale=True)
@@ -186,6 +190,7 @@ async def capture_stream(
                     user_tz=safe_tz,
                     user_memory_context=user_memory_context,
                     user_name=user.get("name", ""),
+                    recent_reminders=recent_reminders,
                 ):
                     if event["type"] == "ack":
                         try:
