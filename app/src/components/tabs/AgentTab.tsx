@@ -610,10 +610,6 @@ export function AgentTab() {
       />
 
       <div className="agent-tab">
-        <div className="agent-hint">
-          Press <kbd>Ctrl+Shift+Space</kbd> or click the orb to start speaking
-        </div>
-
         <div className="agent-turns">
           {displayTurns.length === 0 && (
             <div className="agent-empty">

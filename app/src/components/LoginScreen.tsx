@@ -140,7 +140,6 @@ export function LoginScreen({ onLogin }: Props) {
     <div className="login-screen">
       <div className="titlebar" data-tauri-drag-region>
         <span className="titlebar__logo" style={{ cursor: "default" }}>
-          <span className="titlebar__dot" />
           Recall
         </span>
         <div style={{ flex: 1 }} />

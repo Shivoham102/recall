@@ -116,7 +116,6 @@ export function MainApp({ user, onLogout }: Props) {
     <div className="main-app">
       <div className="titlebar" data-tauri-drag-region>
         <span className="titlebar__logo">
-          <span className="titlebar__dot" />
           Recall
         </span>
         <div className="titlebar__tabs" data-tauri-drag-region>

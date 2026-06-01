@@ -242,13 +242,6 @@ body { background: transparent; overflow: hidden; }
   user-select: none;
 }
 
-.titlebar__dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  opacity: 0.55;
-  flex-shrink: 0;
-}
 
 .titlebar__tabs {
   display: flex;
@@ -733,22 +726,7 @@ body { background: transparent; overflow: hidden; }
   height: 100%;
 }
 
-.agent-hint {
-  text-align: center;
-  font-size: 11px;
-  color: var(--text-muted);
-  padding: 8px 0 4px;
-  flex-shrink: 0;
-}
-.agent-hint kbd {
-  font-family: inherit;
-  background: var(--surface);
-  border: 1px solid var(--border2);
-  border-radius: 4px;
-  padding: 1px 5px;
-  font-size: 11px;
-  color: var(--text);
-}
+
 
 .agent-turns {
   flex: 1;
