@@ -23,7 +23,7 @@ backend/token.json
 backend/last_checkin.json
 
 # Cursor / Claude local settings
-.claude/settings.local.json
+.claude/
 .cursor/
 
 # Local env overrides
