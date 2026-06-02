@@ -12,6 +12,13 @@ LIVE_TIMEOUT_SECONDS = 2.5
 PROACTIVE_TIMEOUT_SECONDS = 2.0
 DEGRADED_COOLDOWN_SECONDS = 300
 
+# Auto-extract dedupe: recall is deliberately sloppy (loose threshold, small top-k).
+# It only gathers candidates; the LLM in memory_extractor makes the new/skip/supersede
+# call. A scalar threshold can't separate "same fact" from "same topic", so we keep it
+# low and let the model decide. Tunable without code changes elsewhere.
+RECALL_THRESHOLD = 0.5
+RECALL_LIMIT = 5
+
 SENSITIVE_CATEGORIES = {"health", "finance", "legal", "government_id", "location", "relationship_sensitive"}
 SECRET_CATEGORY = "secret"
 
@@ -272,6 +279,90 @@ async def add_user_memory(
             if attempt < 2:
                 await asyncio.sleep(0.25 * (2 ** attempt))
     return {"ok": False, "status": "error", "error": str(last_error)[:160] if last_error else "unknown"}
+
+
+async def find_related_memories(
+    user_id: str,
+    query: str,
+    limit: int = RECALL_LIMIT,
+    timeout: float = PROACTIVE_TIMEOUT_SECONDS,
+) -> list[dict]:
+    """Loose semantic recall of existing memories near `query` (the utterance).
+    Returns [{id, text, similarity}] candidates for the extractor's dedupe decision.
+    Takes no action on score — recall only. Empty list on any failure/degraded state
+    so the caller defaults every fact to a fresh write."""
+    if not is_supermemory_available():
+        return []
+    q = (query or "").strip()
+    if not q:
+        return []
+    client = _get_client()
+    if client is None:
+        return []
+    try:
+        def call() -> Any:
+            return client.search.memories(
+                q=q,
+                container_tag=user_id,
+                search_mode="memories",
+                rerank=True,
+                limit=limit,
+                threshold=RECALL_THRESHOLD,
+            )
+
+        raw = await _with_timeout(call, timeout)
+    except Exception as exc:
+        if "429" in str(exc) or "rate" in str(exc).lower() or "quota" in str(exc).lower():
+            _mark_degraded()
+        return []
+
+    results = getattr(raw, "results", None)
+    if results is None and isinstance(raw, dict):
+        results = raw.get("results")
+    out: list[dict] = []
+    for item in results or []:
+        if isinstance(item, dict):
+            rid = item.get("id")
+            text = item.get("memory") or item.get("chunk")
+            sim = item.get("similarity")
+        else:
+            rid = getattr(item, "id", None)
+            text = getattr(item, "memory", None) or getattr(item, "chunk", None)
+            sim = getattr(item, "similarity", None)
+        if rid and text:
+            out.append({"id": str(rid), "text": str(text).strip()[:240], "similarity": sim})
+        if len(out) >= limit:
+            break
+    return out
+
+
+async def update_memory(memory_id: str, user_id: str, new_content: str) -> dict:
+    """Supersede an existing memory's value (e.g. manager Sarah -> Bob). Versions
+    rather than destroys: the prior value is retained with isLatest=false. Only the
+    supersede path calls this; pure duplicates are left untouched."""
+    if not is_supermemory_available():
+        return {"ok": False, "status": "disabled"}
+    client = _get_client()
+    if client is None:
+        return {"ok": False, "status": "unconfigured"}
+    content = (new_content or "").strip()
+    if not memory_id or not content:
+        return {"ok": False, "status": "empty"}
+    try:
+        def call() -> Any:
+            # new_content is the REQUIRED replacement value; id selects the record.
+            return client.memories.update_memory(
+                id=memory_id,
+                container_tag=user_id,
+                new_content=content,
+            )
+
+        await _with_timeout(call, 4.0)
+        return {"ok": True, "status": "updated", "id": memory_id}
+    except Exception as exc:
+        if "429" in str(exc) or "rate" in str(exc).lower() or "quota" in str(exc).lower():
+            _mark_degraded()
+        return {"ok": False, "status": "error", "error": str(exc)[:160]}
 
 
 async def clear_user_memory(user_id: str) -> dict:

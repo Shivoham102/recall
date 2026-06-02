@@ -13,6 +13,7 @@ from auth import get_current_user
 from db import get_admin_db
 from time_utils import parse_due_at, is_valid_iana
 from supermemory_client import format_memory_context, get_user_profile, likely_memory_useful
+from memory_extractor import extract_and_store, _wants_memory_extraction
 import context
 
 router = APIRouter()
@@ -125,10 +126,12 @@ async def capture_stream(
         # Reminder(s) that just fired — lets a bare snooze ("give me 15 more
         # minutes", no task named) resolve to the one that went off.
         recent_reminders = recent_fired_reminders(user["sub"])
-        user_memory_context = ""
-        if likely_memory_useful(transcript):
-            profile = await get_user_profile(user["sub"], transcript, timeout=1.0, allow_stale=True)
-            user_memory_context = format_memory_context(profile)
+        # Always fetch the (cached, 300s TTL) static profile so the agent reliably knows
+        # who the user is; add the query-based relevant-memory search only when the turn
+        # looks memory-relevant. Cold-cache cost is bounded by LIVE_TIMEOUT_SECONDS.
+        query = transcript if likely_memory_useful(transcript) else None
+        profile = await get_user_profile(user["sub"], query, allow_stale=True)
+        user_memory_context = format_memory_context(profile)
     finally:
         context.current_user_id.reset(_uid_tok)
 
@@ -301,6 +304,15 @@ async def capture_stream(
             })
 
             yield _sse({"type": "done"})
+
+            # Auto-extract durable memories AFTER "done" so the user perceives no delay.
+            # Must be AWAITED (not create_task): on Vercel serverless the worker freezes
+            # once the generator returns, which would tear down a detached task before the
+            # Haiku call resolves. Awaiting here keeps the request alive until it finishes,
+            # mirroring the store_task await above. Never fatal — extract_and_store swallows
+            # its own errors.
+            if spoken and _wants_memory_extraction(metadata):
+                await extract_and_store(user["sub"], safe_tz, transcript, spoken)
 
         except GeneratorExit:
             print("[agent_stream] client disconnected mid-stream")
