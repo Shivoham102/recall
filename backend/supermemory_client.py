@@ -365,6 +365,94 @@ async def update_memory(memory_id: str, user_id: str, new_content: str) -> dict:
         return {"ok": False, "status": "error", "error": str(exc)[:160]}
 
 
+async def list_user_memories(user_id: str, limit: int = 100) -> dict:
+    """Raw list of the user's stored memory documents (newest first), for the
+    manageable Memory tab. Unlike the profile digest this reflects writes immediately
+    (no processing lag) and each item is individually deletable."""
+    if not is_supermemory_available():
+        return {"ok": False, "status": "disabled", "items": []}
+    client = _get_client()
+    if client is None:
+        return {"ok": False, "status": "unconfigured", "items": []}
+    try:
+        def call() -> Any:
+            return client.documents.list(
+                container_tags=[user_id],
+                include_content=True,
+                limit=limit,
+                sort="createdAt",
+                order="desc",
+            )
+
+        raw = await _with_timeout(call, LIVE_TIMEOUT_SECONDS)
+    except Exception as exc:
+        if "429" in str(exc) or "rate" in str(exc).lower() or "quota" in str(exc).lower():
+            _mark_degraded()
+        return {"ok": False, "status": "unavailable", "items": []}
+
+    rows = getattr(raw, "memories", None)
+    if rows is None and isinstance(raw, dict):
+        rows = raw.get("memories")
+    items: list[dict] = []
+    for row in rows or []:
+        def _f(name: str) -> Any:
+            return row.get(name) if isinstance(row, dict) else getattr(row, name, None)
+
+        rid = _f("id")
+        text = _f("content") or _f("summary") or _f("title")
+        if not rid or not text:
+            continue
+        meta = _f("metadata")
+        meta = meta if isinstance(meta, dict) else _model_to_dict(meta)
+        items.append({
+            "id": str(rid),
+            "text": str(text).strip()[:400],
+            "status": _f("status"),
+            "source": meta.get("source"),
+            "category": meta.get("category"),
+            "created_at": _f("created_at"),
+        })
+    return {"ok": True, "status": "ok", "items": items}
+
+
+async def delete_user_memory(user_id: str, doc_id: str) -> dict:
+    """Delete a single memory document after verifying it belongs to this user.
+    The SDK delete is by id with no container scoping, so we check ownership first
+    to stop one user deleting another's memory by guessing an id."""
+    if not is_supermemory_available():
+        return {"ok": False, "status": "disabled"}
+    client = _get_client()
+    if client is None:
+        return {"ok": False, "status": "unconfigured"}
+    if not doc_id:
+        return {"ok": False, "status": "empty"}
+    try:
+        def fetch() -> Any:
+            return client.documents.get(doc_id)
+
+        doc = await _with_timeout(fetch, LIVE_TIMEOUT_SECONDS)
+    except Exception:
+        return {"ok": False, "status": "not_found"}
+
+    tags = getattr(doc, "container_tags", None)
+    if tags is None and isinstance(doc, dict):
+        tags = doc.get("container_tags")
+    if not tags or user_id not in tags:
+        return {"ok": False, "status": "not_found"}
+
+    try:
+        def call() -> Any:
+            return client.documents.delete(doc_id)
+
+        await _with_timeout(call, 4.0)
+        _profile_cache.clear()  # digest will rebuild without the deleted doc
+        return {"ok": True, "status": "deleted"}
+    except Exception as exc:
+        if "429" in str(exc) or "rate" in str(exc).lower() or "quota" in str(exc).lower():
+            _mark_degraded()
+        return {"ok": False, "status": "error", "error": str(exc)[:160]}
+
+
 async def clear_user_memory(user_id: str) -> dict:
     if not is_supermemory_available():
         return {"ok": False, "status": "disabled"}

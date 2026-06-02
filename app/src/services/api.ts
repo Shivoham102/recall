@@ -248,6 +248,29 @@ export async function clearMemory(): Promise<{ ok: boolean; status: string }> {
   return res.json();
 }
 
+export interface MemoryItem {
+  id: string;
+  text: string;
+  status?: string | null;
+  source?: string | null;
+  category?: string | null;
+  created_at?: string | null;
+}
+
+export async function listMemoryItems(): Promise<{ ok: boolean; status: string; items: MemoryItem[] }> {
+  const res = await authenticatedFetch(`${await getBase()}/memory/items`);
+  if (!res.ok) throw new Error(`memory/items failed: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteMemoryItem(id: string): Promise<{ ok: boolean; status: string }> {
+  const res = await authenticatedFetch(`${await getBase()}/memory/items/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`memory/items delete failed: ${res.status}`);
+  return res.json();
+}
+
 export type AudioStartStatus = "started" | "rejected" | "error";
 export type AudioFinishStatus = "ended" | "rejected" | "error";
 

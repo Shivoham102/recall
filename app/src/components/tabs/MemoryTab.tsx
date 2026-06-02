@@ -1,38 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
-import { clearMemory, getMemoryProfile, MemoryProfile } from "../../services/api";
+import { clearMemory, deleteMemoryItem, listMemoryItems, MemoryItem } from "../../services/api";
 import { BrainIcon } from "../icons/BrainIcon";
 import { TabLoading } from "../TabLoading";
 
-function MemorySection({ title, items, empty }: { title: string; items: string[]; empty: string }) {
-  return (
-    <div className="memory-section">
-      <div className="memory-section__label">{title}</div>
-      {items.length === 0 ? (
-        <div className="memory-empty-line">{empty}</div>
-      ) : (
-        <div className="memory-list">
-          {items.map((item, idx) => (
-            <div key={`${title}-${idx}`} className="memory-item">{item}</div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function MemoryTab() {
-  const [profile, setProfile] = useState<MemoryProfile | null>(null);
+  const [items, setItems] = useState<MemoryItem[]>([]);
+  const [status, setStatus] = useState<string>("ok");
   const [loading, setLoading] = useState(true);
   const [clearing, setClearing] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setProfile(await getMemoryProfile());
+      const res = await listMemoryItems();
+      setItems(res.items ?? []);
+      setStatus(res.status ?? "ok");
       setMessage("");
     } catch {
-      setProfile(null);
+      setItems([]);
       setMessage("Could not load memory right now.");
     } finally {
       setLoading(false);
@@ -40,6 +27,20 @@ export function MemoryTab() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  const onDelete = async (id: string) => {
+    if (!confirm("Forget this memory?")) return;
+    setDeletingId(id);
+    try {
+      await deleteMemoryItem(id);
+      setItems((prev) => prev.filter((m) => m.id !== id));
+      setMessage("");
+    } catch {
+      setMessage("Could not forget that memory right now.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const onClear = async () => {
     if (!confirm("Clear everything Recall remembers about you?")) return;
@@ -57,11 +58,8 @@ export function MemoryTab() {
 
   if (loading) return <TabLoading />;
 
-  const staticFacts = profile?.profile.static ?? [];
-  const dynamicContext = profile?.profile.dynamic ?? [];
-  const relevant = profile?.relevant_memories ?? [];
-  const hasMemory = staticFacts.length + dynamicContext.length + relevant.length > 0;
-  const showUnavailable = profile?.status === "unavailable" || profile?.status === "disabled";
+  const hasMemory = items.length > 0;
+  const showUnavailable = status === "unavailable" || status === "disabled";
 
   return (
     <div className="memory-tab">
@@ -72,7 +70,7 @@ export function MemoryTab() {
             Memory
           </div>
           <div className="memory-subtitle">
-            Preferences, people, and context Recall learns from your conversations.
+            Everything Recall remembers about you. Forget anything you don't want kept.
           </div>
         </div>
         <button className="tab-refresh" onClick={load}>↺</button>
@@ -97,28 +95,36 @@ export function MemoryTab() {
             </span>
           </div>
         ) : (
-          <>
-            <MemorySection
-              title="About you"
-              items={staticFacts}
-              empty="Stable facts about you will appear here."
-            />
-            <MemorySection
-              title="Recent context"
-              items={dynamicContext}
-              empty="Recent personal context will appear here."
-            />
-            <MemorySection
-              title="Related memories"
-              items={relevant}
-              empty="Related memories will appear here."
-            />
-          </>
+          <div className="memory-section">
+            <div className="memory-section__label">Stored memories</div>
+            <div className="memory-list">
+              {items.map((item) => {
+                const processing = item.status != null && item.status !== "done";
+                return (
+                  <div key={item.id} className="memory-item memory-item--row">
+                    <span className="memory-item__text">
+                      {item.text}
+                      {processing && <span className="memory-item__tag">processing</span>}
+                    </span>
+                    <button
+                      className="memory-item__delete"
+                      onClick={() => onDelete(item.id)}
+                      disabled={deletingId === item.id}
+                      aria-label="Forget this memory"
+                      title="Forget this memory"
+                    >
+                      {deletingId === item.id ? "…" : "×"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
 
       <div className="memory-footer">
-        <span>{profile?.processing_hint ?? "New memories may take a moment to appear."}</span>
+        <span>New memories may take a moment to appear.</span>
         {hasMemory && (
           <button className="memory-clear" onClick={onClear} disabled={clearing}>
             {clearing ? "Clearing..." : "Clear all memory"}
