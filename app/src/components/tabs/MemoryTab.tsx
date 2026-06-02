@@ -10,6 +10,7 @@ export function MemoryTab() {
   const [clearing, setClearing] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [query, setQuery] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +61,10 @@ export function MemoryTab() {
 
   const hasMemory = items.length > 0;
   const showUnavailable = status === "unavailable" || status === "disabled";
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? items.filter((m) => `${m.text} ${m.category ?? ""}`.toLowerCase().includes(q))
+    : items;
 
   return (
     <div className="memory-tab">
@@ -84,6 +89,23 @@ export function MemoryTab() {
 
       {message && <div className="memory-message">{message}</div>}
 
+      {hasMemory && (
+        <div className="memory-search-row">
+          <div className="memory-search">
+            <span className="memory-search__icon">⌕</span>
+            <input
+              className="memory-search__input"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search memories…"
+            />
+            {query && (
+              <button className="memory-search__clear" onClick={() => setQuery("")} aria-label="Clear search">✕</button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="memory-body">
         {!hasMemory ? (
           <div className="memory-empty">
@@ -94,31 +116,30 @@ export function MemoryTab() {
               and Recall will remember them for you.
             </span>
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="memory-no-match">No memories match “{query.trim()}”.</div>
         ) : (
-          <div className="memory-section">
-            <div className="memory-section__label">Stored memories</div>
-            <div className="memory-list">
-              {items.map((item) => {
-                const processing = item.status != null && item.status !== "done";
-                return (
-                  <div key={item.id} className="memory-item memory-item--row">
-                    <span className="memory-item__text">
-                      {item.text}
-                      {processing && <span className="memory-item__tag">processing</span>}
-                    </span>
-                    <button
-                      className="memory-item__delete"
-                      onClick={() => onDelete(item.id)}
-                      disabled={deletingId === item.id}
-                      aria-label="Forget this memory"
-                      title="Forget this memory"
-                    >
-                      {deletingId === item.id ? "…" : "×"}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+          <div className="memory-cards">
+            {filtered.map((item) => {
+              const processing = item.status != null && item.status !== "done";
+              return (
+                <div key={item.id} className="memory-card">
+                  <span className="memory-item__text">
+                    {item.text}
+                    {processing && <span className="memory-item__tag">processing</span>}
+                  </span>
+                  <button
+                    className="memory-item__delete"
+                    onClick={() => onDelete(item.id)}
+                    disabled={deletingId === item.id}
+                    aria-label="Forget this memory"
+                    title="Forget this memory"
+                  >
+                    {deletingId === item.id ? "…" : "×"}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
