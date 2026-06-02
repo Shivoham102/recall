@@ -137,6 +137,7 @@ async def extract_and_store(user_id: str, user_tz: str, transcript: str, spoken:
         print(f"[memory_extractor] extract failed user={user_id}: {exc}", flush=True)
         return
 
+    counts = {"new": 0, "skip": 0, "supersede": 0, "sensitive": 0}
     valid_ids = {c["id"] for c in candidates}
     for fact in facts[:_MAX_FACTS]:
         if not isinstance(fact, dict):
@@ -152,21 +153,32 @@ async def extract_and_store(user_id: str, user_tz: str, transcript: str, spoken:
         # sensitive facts. They still flow through the explicit-confirmation path in
         # tools/user_memory.py.
         if _is_sensitive(category, sensitivity):
+            counts["sensitive"] += 1
             continue
 
         try:
             if action == "skip":
+                counts["skip"] += 1
                 continue
             if action == "supersede":
                 supersede_id = str(fact.get("supersede_id") or "").strip()
                 if supersede_id and supersede_id in valid_ids:
                     await update_memory(supersede_id, user_id, memory)
+                    counts["supersede"] += 1
                 else:
                     # Model said supersede but gave no/invalid id — store as new rather
                     # than overwrite the wrong record.
                     await add_user_memory(user_id, memory, category, metadata={"source": "auto_extract"})
+                    counts["new"] += 1
                 continue
             # default: new
             await add_user_memory(user_id, memory, category, metadata={"source": "auto_extract"})
+            counts["new"] += 1
         except Exception as exc:
             print(f"[memory_extractor] store failed user={user_id} action={action}: {exc}", flush=True)
+
+    print(
+        f"[memory_extractor] user={user_id} candidates={len(candidates)} facts={len(facts)} "
+        f"new={counts['new']} skip={counts['skip']} supersede={counts['supersede']} sensitive={counts['sensitive']}",
+        flush=True,
+    )
