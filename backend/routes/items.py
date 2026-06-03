@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Query, Depends, HTTPException
 from pydantic import BaseModel
 from datetime import datetime, timezone
 import re
 from db import get_db
 from auth import get_current_user
+from time_utils import parse_due_at, is_valid_iana
 
 router = APIRouter()
 
@@ -91,10 +92,16 @@ def get_items(
 class ItemUpdate(BaseModel):
     status: str | None = None
     due_hint: str | None = None
+    # Explicit new due time (ISO 8601). Used by snooze/reschedule, which shift the EXISTING
+    # due by a delta client-side, so no NLP parsing or tz is needed.
+    due_at: str | None = None
     # recurrence: pass {} or null to CLEAR (stop repeating); a dict to set. Sentinel below
     # distinguishes "field absent" from "explicitly clearing", since None means clear here.
     recurrence: dict | None = None
     clear_recurrence: bool = False
+    # Client-supplied IANA tz for parsing a new due_hint (legacy/voice path). Trusted like
+    # capture_stream's timezone; never written to the row. Falls back to UTC if invalid.
+    timezone: str | None = None
 
 
 @router.patch("/items/{item_id}")
@@ -102,7 +109,7 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(get_current
     db = get_db()
     update = {
         k: v
-        for k, v in body.model_dump(exclude={"recurrence", "clear_recurrence"}).items()
+        for k, v in body.model_dump(exclude={"recurrence", "clear_recurrence", "timezone"}).items()
         if v is not None
     }
     if body.clear_recurrence:
@@ -111,6 +118,21 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(get_current
         update["due_at"] = None
     elif body.recurrence is not None:
         update["recurrence"] = body.recurrence
+
+    # A new due_hint (legacy/voice path) is parsed to due_at in the user's tz.
+    if body.due_hint is not None and not body.clear_recurrence:
+        tz = body.timezone if (body.timezone and is_valid_iana(body.timezone)) else "UTC"
+        due_at = parse_due_at(body.due_hint, tz)
+        if not due_at:
+            raise HTTPException(status_code=422, detail=f"Could not parse due time: {body.due_hint}")
+        update["due_at"] = due_at
+
+    # Whenever due_at moved to a concrete time (explicit snooze or parsed hint), clear
+    # reminded_at and reopen so a fired/missed reminder can fire again. Mirrors tools/memory.py.
+    if update.get("due_at") is not None and not body.clear_recurrence:
+        update["reminded_at"] = None
+        update.setdefault("status", "open")
+
     if not update:
         return {}
     update["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -122,3 +144,21 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(get_current
         .execute()
     )
     return result.data[0] if result.data else {}
+
+
+@router.delete("/items/{item_id}")
+def delete_item(item_id: str, user: dict = Depends(get_current_user)):
+    """Hard-delete a recall_item. Unlike resolving (status change, which stays a learning
+    signal for pattern_learn/goal_neglect), deletion removes the row entirely so a
+    mis-captured item leaves no trace. Scoped by user_id; 404 if nothing matched."""
+    db = get_db()
+    result = (
+        db.table("recall_items")
+        .delete()
+        .eq("id", item_id)
+        .eq("user_id", user["sub"])
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"ok": True}

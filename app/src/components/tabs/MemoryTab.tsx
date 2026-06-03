@@ -2,21 +2,22 @@ import { useCallback, useEffect, useState } from "react";
 import { clearMemory, deleteMemoryItem, listMemoryItems, MemoryItem } from "../../services/api";
 import { BrainIcon } from "../icons/BrainIcon";
 import { TabLoading } from "../TabLoading";
+import { useToast } from "../Toast";
 
 export function MemoryTab() {
   const [items, setItems] = useState<MemoryItem[]>([]);
   const [status, setStatus] = useState<string>("ok");
   const [loading, setLoading] = useState(true);
   const [clearing, setClearing] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
+  const { scheduleUndo, isPending } = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await listMemoryItems();
-      setItems(res.items ?? []);
+      setItems((res.items ?? []).filter((m) => !isPending(m.id)));
       setStatus(res.status ?? "ok");
       setMessage("");
     } catch {
@@ -25,22 +26,25 @@ export function MemoryTab() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isPending]);
 
   useEffect(() => { void load(); }, [load]);
 
-  const onDelete = async (id: string) => {
-    if (!confirm("Forget this memory?")) return;
-    setDeletingId(id);
-    try {
-      await deleteMemoryItem(id);
-      setItems((prev) => prev.filter((m) => m.id !== id));
-      setMessage("");
-    } catch {
-      setMessage("Could not forget that memory right now.");
-    } finally {
-      setDeletingId(null);
-    }
+  const onForget = (item: MemoryItem) => {
+    const index = items.findIndex((m) => m.id === item.id);
+    setItems((prev) => prev.filter((m) => m.id !== item.id));
+    scheduleUndo({
+      id: item.id,
+      message: "Forgotten",
+      onUndo: () =>
+        setItems((prev) => {
+          if (prev.some((m) => m.id === item.id)) return prev;
+          const next = [...prev];
+          next.splice(Math.max(0, index), 0, item);
+          return next;
+        }),
+      commit: () => deleteMemoryItem(item.id),
+    });
   };
 
   const onClear = async () => {
@@ -122,20 +126,25 @@ export function MemoryTab() {
           <div className="memory-cards">
             {filtered.map((item) => {
               const processing = item.status != null && item.status !== "done";
+              const auto = item.source === "auto_extract";
               return (
                 <div key={item.id} className="memory-card">
-                  <span className="memory-item__text">
-                    {item.text}
-                    {processing && <span className="memory-item__tag">processing</span>}
-                  </span>
+                  <div className="memory-card__body">
+                    <span className="memory-item__text">{item.text}</span>
+                    <div className="memory-card__tags">
+                      <span className={`memory-card__source memory-card__source--${auto ? "auto" : "user"}`}>
+                        {auto ? "auto" : "you said"}
+                      </span>
+                      {processing && <span className="memory-item__tag">processing</span>}
+                    </div>
+                  </div>
                   <button
                     className="memory-item__delete"
-                    onClick={() => onDelete(item.id)}
-                    disabled={deletingId === item.id}
+                    onClick={() => onForget(item)}
                     aria-label="Forget this memory"
                     title="Forget this memory"
                   >
-                    {deletingId === item.id ? "…" : "×"}
+                    ×
                   </button>
                 </div>
               );

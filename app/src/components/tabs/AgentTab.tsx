@@ -28,6 +28,7 @@ const TASK_TYPE_COLOR: Record<string, string> = {
 
 const INTENT_COLORS: Record<string, string> = {
   task: "var(--intent-task)",
+  reminder: "var(--amber)",
   blocker: "var(--intent-blocker)",
   follow_up: "var(--intent-follow_up)",
   follow_up_draft: "var(--intent-follow_up_draft)",
@@ -411,6 +412,12 @@ export function AgentTab() {
         } else if (event.type === "stored") {
           itemId = event.item_id;
           dueAt = event.due_at;
+          // A stored item with a due time is a reminder; classify_intent tags these as
+          // "task", so relabel the chat badge to match what was actually created.
+          if (event.due_at) {
+            intentType = "reminder";
+            patchTurnInChat(chatId, userTurnId, { intentType: "reminder" });
+          }
         } else if (event.type === "item_updated") {
           applyItemUpdatedTimer(event.item_id, event.due_at, "AgentTab");
         } else if (event.type === "audio") {

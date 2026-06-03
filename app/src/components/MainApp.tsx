@@ -15,6 +15,7 @@ import { loadPendingReminders } from "../services/reminderScheduler";
 import { AuthUser } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import { AgentChatsProvider } from "../context/AgentChatsContext";
+import { ToastProvider } from "./Toast";
 
 interface Props {
   user: AuthUser;
@@ -171,16 +172,18 @@ export function MainApp({ user, onLogout }: Props) {
         </div>
       </div>
 
-      <AgentChatsProvider userId={user.user_id}>
-        <div className="main-content">
-          {tab === "agent"       && <AgentTab />}
-          {tab === "tasks"       && <TasksTab />}
-          {/* {tab === "transcripts" && <TranscriptsTab />} */}
-          {tab === "memory"      && <MemoryTab />}
-          {tab === "reminders"   && <RemindersTab />}
-          {tab === "profile"     && <ProfileTab user={user} onLogout={onLogout} onShowOnboarding={() => setShowOnboarding(true)} />}
-        </div>
-      </AgentChatsProvider>
+      <ToastProvider>
+        <AgentChatsProvider userId={user.user_id}>
+          <div className="main-content">
+            {tab === "agent"       && <AgentTab />}
+            {tab === "tasks"       && <TasksTab />}
+            {/* {tab === "transcripts" && <TranscriptsTab />} */}
+            {tab === "memory"      && <MemoryTab />}
+            {tab === "reminders"   && <RemindersTab />}
+            {tab === "profile"     && <ProfileTab user={user} onLogout={onLogout} onShowOnboarding={() => setShowOnboarding(true)} />}
+          </div>
+        </AgentChatsProvider>
+      </ToastProvider>
 
       {updateOverlay && (
         <div className="update-overlay">

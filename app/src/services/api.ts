@@ -176,7 +176,7 @@ export async function getItems(params?: {
 
 export async function updateItem(
   id: string,
-  update: { status?: string; due_hint?: string; recurrence?: Recurrence; clear_recurrence?: boolean },
+  update: { status?: string; due_hint?: string; due_at?: string; recurrence?: Recurrence; clear_recurrence?: boolean; timezone?: string },
 ): Promise<RecallItem> {
   const res = await authenticatedFetch(`${await getBase()}/items/${id}`, {
     method: "PATCH",
@@ -184,6 +184,14 @@ export async function updateItem(
     body: JSON.stringify(update),
   });
   if (!res.ok) throw new Error(`updateItem failed: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteItem(id: string): Promise<{ ok: boolean }> {
+  const res = await authenticatedFetch(`${await getBase()}/items/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`deleteItem failed: ${res.status}`);
   return res.json();
 }
 
