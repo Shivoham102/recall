@@ -1,0 +1,66 @@
+{
+  "version": "v1.1.0",
+  "entity": {
+    "type": "individual",
+    "role": "owner",
+    "name": "Shivoham Angal",
+    "email": "shivohamangal@gmail.com",
+    "description": "Indie developer building Recall, an open source proactive AI agent for your desktop. Recall connects to your Gmail, Google Calendar, and Drive to surface what matters before you need to ask.",
+    "webpageUrl": {
+      "url": "https://github.com/Shivoham102/recall"
+    }
+  },
+  "projects": [
+    {
+      "guid": "recall",
+      "name": "Recall",
+      "description": "Recall is an open source proactive AI desktop agent (Tauri + React + Rust, Python backend) that integrates with Gmail, Google Calendar, and Google Drive. It surfaces important information and takes action on your behalf before you think to ask. The primary blocker to a stable public release is funding a Google CASA Tier 2 security assessment ($540), required for OAuth verification of restricted Gmail and Calendar scopes.",
+      "webpageUrl": {
+        "url": "https://github.com/Shivoham102/recall"
+      },
+      "repositoryUrl": {
+        "url": "https://github.com/Shivoham102/recall"
+      },
+      "licenses": ["spdx:MIT"],
+      "tags": [
+        "ai-agent",
+        "desktop-app",
+        "productivity",
+        "tauri",
+        "open-source"
+      ]
+    }
+  ],
+  "funding": {
+    "channels": [
+      {
+        "guid": "github-sponsors",
+        "type": "payment-provider",
+        "address": "https://github.com/sponsors/Shivoham102",
+        "description": "GitHub Sponsors"
+      }
+    ],
+    "plans": [
+      {
+        "guid": "casa-audit",
+        "status": "active",
+        "name": "Google CASA Tier 2 Security Audit",
+        "description": "One-time cost to pass Google's required security assessment for OAuth verification of restricted Gmail and Calendar scopes. Unlocks public release on Google's official OAuth verified app list.",
+        "amount": "540",
+        "currency": "USD",
+        "frequency": "one-time",
+        "channels": ["github-sponsors"]
+      },
+      {
+        "guid": "monthly-sustainer",
+        "status": "active",
+        "name": "Monthly Development Support",
+        "description": "Covers API costs (Claude, Supabase) and ongoing development time to keep Recall free and open source.",
+        "amount": "0",
+        "currency": "USD",
+        "frequency": "monthly",
+        "channels": ["github-sponsors"]
+      }
+    ]
+  }
+}
