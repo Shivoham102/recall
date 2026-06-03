@@ -38,6 +38,19 @@ $updated = foreach ($line in $cargo) {
 [System.IO.File]::WriteAllText($cargoPath, ($updated -join "`n") + "`n", $utf8)
 Write-Host "Updated $cargoPath"
 
+# app/src-tauri/Cargo.lock — bump the `recall` package entry so the lock matches in the
+# tagged commit instead of drifting (which caused recurring "sync Cargo.lock" commits).
+$lockPath = Join-Path $root "app\src-tauri\Cargo.lock"
+$lock = Get-Content $lockPath
+$isRecall = $false
+$updatedLock = foreach ($line in $lock) {
+    if ($line -match '^name\s*=\s*"recall"$') { $isRecall = $true; $line }
+    elseif ($isRecall -and $line -match '^version\s*=') { $isRecall = $false; "version = `"$Version`"" }
+    else { $line }
+}
+[System.IO.File]::WriteAllText($lockPath, ($updatedLock -join "`n") + "`n", $utf8)
+Write-Host "Updated $lockPath"
+
 # Commit, tag, push
 Set-Location $root
 git add app/src-tauri/tauri.conf.json app/package.json app/src-tauri/Cargo.toml app/src-tauri/Cargo.lock
