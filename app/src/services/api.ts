@@ -121,6 +121,7 @@ export interface RecallItem {
   due_hint: string | null;
   due_at?: string | null;
   recurrence?: Recurrence | null;
+  reminded_at?: string | null;
   display_text?: string;
 }
 

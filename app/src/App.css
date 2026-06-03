@@ -1591,6 +1591,11 @@ body { background: transparent; overflow: hidden; }
 .reminder-card--repeating { border-color: color-mix(in srgb, var(--purple) 30%, transparent); }
 .reminder-card--repeating .reminder-card__due { color: var(--purple); }
 
+/* Fired (already rang) reminders */
+.tab-header--reminded { margin-top: 16px; }
+.reminder-card--fired { border-color: color-mix(in srgb, var(--green) 28%, transparent); }
+.reminder-card--fired .reminder-card__due { color: var(--green); }
+
 /* ═══════════════════════════════════════════
    UNDO TOASTS
 ═══════════════════════════════════════════ */

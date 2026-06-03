@@ -64,6 +64,8 @@ export function RemindersTab() {
     removeWithUndo(items, setItems, item, "Stopped repeating", () => updateItem(item.id, { clear_recurrence: true }));
   const acknowledge = (item: RecallItem) =>
     removeWithUndo(missed, setMissed, item, "Acknowledged", () => updateItem(item.id, { status: "resolved" }));
+  const done = (item: RecallItem) =>
+    removeWithUndo(items, setItems, item, "Done", () => updateItem(item.id, { status: "resolved" }));
   const remove = (item: RecallItem, list: RecallItem[], setList: Dispatch<SetStateAction<RecallItem[]>>) =>
     removeWithUndo(list, setList, item, "Deleted", () => deleteItem(item.id));
 
@@ -88,7 +90,8 @@ export function RemindersTab() {
   if (loading) return <TabLoading />;
 
   const recurring = items.filter((i) => i.recurrence);
-  const upcoming = items.filter((i) => !i.recurrence);
+  const upcoming = items.filter((i) => !i.recurrence && !i.reminded_at);
+  const fired = items.filter((i) => !i.recurrence && i.reminded_at); // rang, awaiting action
 
   return (
     <div className="reminders-tab">
@@ -129,7 +132,7 @@ export function RemindersTab() {
         <button className="tab-refresh" onClick={load}>↺</button>
       </div>
 
-      {upcoming.length === 0 && recurring.length === 0 && missed.length === 0 && (
+      {upcoming.length === 0 && recurring.length === 0 && fired.length === 0 && missed.length === 0 && (
         <div className="tab-empty">No reminders set. Tell the agent to remind you of something.</div>
       )}
 
@@ -160,6 +163,42 @@ export function RemindersTab() {
           </div>
         ))}
       </div>
+
+      {fired.length > 0 && (
+        <>
+          <div className="tab-header tab-header--reminded">
+            <span className="tab-header__title">Reminded</span>
+            <span className="tab-header__count">{fired.length}</span>
+          </div>
+          <div className="reminder-list">
+            {fired.map((item) => (
+              <div key={item.id} className="reminder-card reminder-card--fired">
+                <div className="reminder-card__due">
+                  <span className="reminder-card__due-icon">✓</span>
+                  Reminded · {formatDue(item)}
+                </div>
+                <p className="reminder-card__content">{item.display_text || item.content}</p>
+                <div className="reminder-card__snooze">
+                  {SNOOZE_PRESETS.map((p) => (
+                    <button key={p.label} className="reminder-card__snooze-btn" onClick={() => snooze(item, p.ms)}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="reminder-card__footer">
+                  <span className="reminder-card__date">
+                    Added {new Date(item.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}
+                  </span>
+                  <div className="reminder-card__actions">
+                    <button className="reminder-card__dismiss" onClick={() => done(item)}>Done</button>
+                    <button className="reminder-card__delete" onClick={() => remove(item, items, setItems)} title="Delete" aria-label="Delete">×</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {missed.length > 0 && (
         <>

@@ -71,7 +71,7 @@ def get_items(
 ):
     db = get_db()
     query = db.table("recall_items").select(
-        "id,content,intent_type,status,created_at,updated_at,due_hint,due_at,recurrence"
+        "id,content,intent_type,status,created_at,updated_at,due_hint,due_at,recurrence,reminded_at"
     ).eq("user_id", user["sub"])
     if status:
         query = query.eq("status", status)
