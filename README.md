@@ -1,6 +1,6 @@
 # Recall
 
-Voice-first AI memory assistant. Hit a hotkey, speak a thought, and Recall transcribes, classifies, stores it, and responds by voice. Ask what's open, what you got done, or what needs follow-up. Draft emails, check your calendar, create files, all in context.
+Desktop voice agent for productivity. Hit a hotkey, speak a thought, and Recall transcribes, classifies, stores it, and responds by voice. Ask what's open, what you got done, or what needs follow-up. Draft emails, check your calendar, create files, all in context.
 
 ---
 
