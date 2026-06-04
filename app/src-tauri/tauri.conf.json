@@ -36,6 +36,20 @@
                                     "skipTaskbar":  true,
                                     "resizable":  false,
                                     "visible":  false
+                                },
+                                {
+                                    "label":  "notif",
+                                    "title":  "",
+                                    "width":  420,
+                                    "height":  108,
+                                    "decorations":  false,
+                                    "transparent":  true,
+                                    "shadow":  false,
+                                    "alwaysOnTop":  true,
+                                    "skipTaskbar":  true,
+                                    "resizable":  false,
+                                    "focus":  false,
+                                    "visible":  false
                                 }
                             ],
                 "security":  {

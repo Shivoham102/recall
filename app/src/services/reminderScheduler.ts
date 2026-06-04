@@ -1,5 +1,8 @@
 import { emit } from "@tauri-apps/api/event";
 import { checkDueReminders, getPendingReminders, markRemindersAsMissed } from "./api";
+import { bumpSuppressed, isQuietContext } from "./quietContext";
+import { showQuietCard } from "./notify";
+import { addNotification } from "./notifications";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 5_000;
@@ -23,9 +26,19 @@ async function fireDue(): Promise<void> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const reminders = await checkDueReminders();
+      // Decide quiet BEFORE fetching: when carding we pass silent=1 so the backend
+      // skips TTS synthesis for audio the card would discard.
+      const quiet = await isQuietContext();
+      const reminders = await checkDueReminders(quiet);
       for (const r of reminders) {
-        await emit("recall:reminder", { audio_base64: r.audio_base64, content: r.content });
+        if (quiet) {
+          void showQuietCard("reminder", { content: r.content });
+          bumpSuppressed();
+        } else {
+          await emit("recall:reminder", { audio_base64: r.audio_base64, content: r.content });
+        }
+        // Log to the notification center regardless of how it was delivered.
+        addNotification({ id: `reminder:${r.id}:${Date.now()}`, kind: "reminder", message: `Reminder: ${r.content}` });
         await emit("recall:new-turn", {
           transcript: `Reminder: ${r.content}`,
           response_text: `Reminder: ${r.content}`,

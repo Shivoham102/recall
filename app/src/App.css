@@ -159,6 +159,170 @@ body { background: transparent; overflow: hidden; }
 /* Orb visuals are rendered by the WebGL <Orb> component (components/Orb).
    Only .orb-root (layout, above) and .orb-fallback (no-GL, below) remain. */
 
+/* ── Notification card window (quiet-context delivery) ── */
+.notif-root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  background: transparent;
+  overflow: hidden;
+}
+.notif-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px 8px 6px;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.24s ease, transform 0.24s ease;
+  user-select: none;
+}
+.notif-card--in { opacity: 1; transform: translateY(0); }
+.notif-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.notif-card__msg {
+  flex: 1 1 auto;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* Close button: an X inside a ring that depletes over the 5s auto-dismiss. */
+.notif-card__close {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.notif-ring__track {
+  fill: none;
+  stroke: var(--border2);
+  stroke-width: 2;
+}
+.notif-ring__progress {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-box: fill-box;
+  transform-origin: center;
+  stroke-dasharray: 69.12;
+  stroke-dashoffset: 0;
+  animation: notif-ring-deplete 5s linear forwards;
+  animation-play-state: paused;
+}
+.notif-card--in .notif-ring__progress { animation-play-state: running; }
+@keyframes notif-ring-deplete { to { stroke-dashoffset: 69.12; } }
+.notif-x {
+  stroke: var(--text-secondary);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+.notif-card__close:hover .notif-x { stroke: var(--text); }
+
+/* ── Notification center (titlebar bell + dropdown) ── */
+.notifc { position: relative; display: flex; align-items: center; }
+.notifc__bell { position: relative; }
+.notifc__badge {
+  position: absolute;
+  top: 0;
+  right: -1px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+.notifc__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 300px;
+  max-height: 380px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  z-index: 1000;
+  overflow: hidden;
+}
+.notifc__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.notifc__title { font-size: 12px; font-weight: 600; color: var(--text); }
+.notifc__actions { display: flex; gap: 10px; }
+.notifc__action {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--accent);
+}
+.notifc__action:hover { text-decoration: underline; }
+.notifc__empty {
+  padding: 22px 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.notifc__list { overflow-y: auto; }
+.notifc__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+.notifc__item:last-child { border-bottom: none; }
+.notifc__item:hover { background: var(--hover); }
+.notifc__item--unread { background: var(--accent-soft); }
+.notifc__item--unread:hover { background: var(--accent-hover-bg); }
+.notifc__msg { font-size: 12.5px; color: var(--text); line-height: 1.3; }
+.notifc__time { font-size: 10.5px; color: var(--text-muted); }
+
 /* ── No-WebGL fallback orb (rendered by <Orb> when getContext fails) ── */
 .orb-fallback {
   position: relative;

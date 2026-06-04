@@ -48,8 +48,10 @@ def get_pending_reminders(user: dict = Depends(get_current_user)):
 
 
 @router.get("/reminders/due")
-async def get_due_reminders(user: dict = Depends(get_current_user)):
-    """Returns all currently-due items with TTS audio, marking each reminded only after success."""
+async def get_due_reminders(silent: bool = False, user: dict = Depends(get_current_user)):
+    """Returns all currently-due items, marking each reminded / rolling recurrence
+    forward. Normally includes TTS audio; with silent=1 (client is on a call and
+    will show a card instead) it skips synthesis and returns empty audio."""
     now = datetime.now(timezone.utc).isoformat()
     result = (
         get_db()
@@ -67,11 +69,14 @@ async def get_due_reminders(user: dict = Depends(get_current_user)):
 
     output = []
     for item in items:
-        try:
+        if silent:
+            audio = ""  # client will card it — don't burn TTS on audio it discards
+        else:
             spoken = item.get("reminder_text") or f"Reminder: {item['content']}"
-            audio = await synthesize(spoken)
-        except Exception:
-            continue  # leave reminded_at null so it retries next call
+            try:
+                audio = await synthesize(spoken)
+            except Exception:
+                audio = ""  # TTS unavailable (e.g. quota) — still fire, just silent
         # Recurring reminders: fire once (late if overdue), then roll due_at forward to the
         # next future occurrence and leave reminded_at null so they fire again. One-off
         # reminders: mark reminded so they don't repeat.

@@ -5,6 +5,7 @@ import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
 import "@fontsource/inter/700.css";
 import { OrbWindow } from "./components/OrbWindow";
+import { NotificationCard } from "./components/NotificationCard";
 import { MainApp } from "./components/MainApp";
 import { LoginScreen } from "./components/LoginScreen";
 import { LoadingScreen } from "./components/LoadingScreen";
@@ -35,5 +36,5 @@ function AppRoot() {
 }
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  label === "orb" ? <OrbWindow /> : <AppRoot />,
+  label === "orb" ? <OrbWindow /> : label === "notif" ? <NotificationCard /> : <AppRoot />,
 );

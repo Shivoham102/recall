@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentTab } from "./tabs/AgentTab";
 import { TasksTab } from "./tabs/TasksTab";
@@ -10,8 +10,11 @@ import { MemoryTab } from "./tabs/MemoryTab";
 import { RemindersTab } from "./tabs/RemindersTab";
 import { ProfileTab } from "./tabs/ProfileTab";
 import { Onboarding } from "./Onboarding";
+import { NotificationCenter } from "./NotificationCenter";
 import { BrainIcon } from "./icons/BrainIcon";
 import { loadPendingReminders } from "../services/reminderScheduler";
+import { startQuietWatcher } from "../services/quietContext";
+import { fetchNudgeAudio } from "../services/api";
 import { AuthUser } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import { AgentChatsProvider } from "../context/AgentChatsContext";
@@ -73,6 +76,18 @@ export function MainApp({ user, onLogout }: Props) {
     };
   }, []);
 
+  // Quiet-context watcher: when a call/meeting ends (5s grace), the orb speaks a
+  // short nudge for any alerts that were carded instead of spoken while away.
+  useEffect(() => {
+    return startQuietWatcher(async (n) => {
+      console.log(`[quiet] call ended — nudge for ${n} suppressed notification(s)`);
+      try {
+        const audioB64 = await fetchNudgeAudio(n);
+        if (audioB64) await emit("recall:proactive-ready", { audio_b64: audioB64 });
+      } catch { /* ignore */ }
+    });
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const unlisteners: (() => void)[] = [];
@@ -131,6 +146,9 @@ export function MainApp({ user, onLogout }: Props) {
             </button>
           ))}
         </div>
+        <NotificationCenter
+          onNavigate={(entry) => setTab(entry.kind === "reminder" ? "reminders" : "agent")}
+        />
         <button
           className="titlebar-icon-btn"
           title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}

@@ -1,3 +1,5 @@
+mod mic;
+
 use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -102,9 +104,9 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .invoke_handler({
             #[cfg(debug_assertions)]
-            { tauri::generate_handler![get_backend_port, check_for_updates, start_update, simulate_update_available, simulate_update, simulate_no_update] }
+            { tauri::generate_handler![get_backend_port, check_for_updates, start_update, simulate_update_available, simulate_update, simulate_no_update, mic::is_mic_in_use, mic::show_notif, mic::hide_notif] }
             #[cfg(not(debug_assertions))]
-            { tauri::generate_handler![get_backend_port, check_for_updates, start_update] }
+            { tauri::generate_handler![get_backend_port, check_for_updates, start_update, mic::is_mic_in_use, mic::show_notif, mic::hide_notif] }
         })
         .setup(|app| {
             let _ = app.deep_link().register_all();

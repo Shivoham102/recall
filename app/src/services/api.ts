@@ -375,8 +375,8 @@ export async function getPendingReminders(): Promise<PendingReminder[]> {
   return res.json();
 }
 
-export async function checkDueReminders(): Promise<DueReminder[]> {
-  const res = await authenticatedFetch(`${await getBase()}/reminders/due`);
+export async function checkDueReminders(silent = false): Promise<DueReminder[]> {
+  const res = await authenticatedFetch(`${await getBase()}/reminders/due${silent ? "?silent=1" : ""}`);
   if (!res.ok) throw new Error(`reminders/due failed: ${res.status}`);
   return res.json();
 }
@@ -439,6 +439,18 @@ async function initProactive(): Promise<ProactiveInitResponse> {
 export async function fetchProactiveAnnounceAudio(): Promise<string | null> {
   try {
     const res = await authenticatedFetch(`${await getBase()}/agent/proactive/announce-audio`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { audio_b64?: string | null };
+    return data.audio_b64 ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** TTS for the quiet-clear nudge ("You have N notifications"), spoken once the call ends. */
+export async function fetchNudgeAudio(n: number): Promise<string | null> {
+  try {
+    const res = await authenticatedFetch(`${await getBase()}/agent/proactive/nudge-audio?n=${encodeURIComponent(String(n))}`);
     if (!res.ok) return null;
     const data = (await res.json()) as { audio_b64?: string | null };
     return data.audio_b64 ?? null;

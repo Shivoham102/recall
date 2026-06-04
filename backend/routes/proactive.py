@@ -137,6 +137,20 @@ async def proactive_announce_audio(user: dict = Depends(get_current_user)):
     return {"audio_b64": audio_b64}
 
 
+@router.get("/agent/proactive/nudge-audio")
+async def proactive_nudge_audio(n: int = 1, user: dict = Depends(get_current_user)):
+    """TTS for the quiet-clear nudge. Spoken once the user's call/meeting ends to
+    flag alerts that were carded instead of spoken while they were unavailable."""
+    n = max(1, min(99, n))
+    text = "You have a notification." if n == 1 else f"You have {n} notifications."
+    try:
+        audio_b64 = await synthesize(text)
+    except Exception as exc:
+        print(f"[proactive_nudge_audio] TTS failed: {exc}")
+        audio_b64 = None
+    return {"audio_b64": audio_b64}
+
+
 class AckBody(BaseModel):
     id: str
 

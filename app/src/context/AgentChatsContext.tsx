@@ -11,6 +11,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit, listen } from "@tauri-apps/api/event";
 import { supabase } from "../services/supabase";
 import { ackProactiveJob, connectProactiveStream, fetchProactiveAnnounceAudio, playAudio, suggestAgentChatTitle } from "../services/api";
+import { bumpSuppressed, isQuietContext } from "../services/quietContext";
+import { showQuietCard } from "../services/notify";
+import { addNotification, proactiveLabel } from "../services/notifications";
 import { AgentChat, AgentTurn, CalendarCard, EmailCard, TaskCard } from "../types/agentTurn";
 import { firstUserMessageText, normalizeStoredAgentChat } from "../utils/agentChatDisplay";
 
@@ -421,6 +424,14 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
         replaceChatTurns(chatId, (prev) =>
           prev.some((t) => t.id === event.id) ? prev : [...prev, newTurn],
         );
+        // Log every proactive delivery (all job types) to the notification center,
+        // whether it ends up spoken or carded. Deduped by job id.
+        addNotification({
+          id: event.id,
+          kind: event.job_type,
+          message: proactiveLabel(event.job_type, event.result),
+          ts: event.timestamp,
+        });
         if (PROACTIVE_UNREAD_TYPES.has(event.job_type)) {
           setProactiveUnread(true);
           try { localStorage.setItem("recall_proactive_unread", "1"); } catch { /* ignore */ }
@@ -468,6 +479,15 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
         // reconnect or concurrent re-delivery can't re-announce it — the earlier
         // ssKey guard short-circuits to ackAndMark even while the first ack is in flight.
         try { sessionStorage.setItem(ssKey, "1"); } catch { /* ignore */ }
+
+        // Quiet context (on a call / in a meeting): show a card instead of speaking,
+        // and count it so the orb can nudge once the call ends. Placed before
+        // fetchProactiveAnnounceAudio so we never synthesize audio we'd discard.
+        if (await isQuietContext()) {
+          void showQuietCard("morning_brief", event.result);
+          bumpSuppressed();
+          return await ackAndMark(ssKey);
+        }
 
         // The Realtime row carries no audio — fetch the announcement on demand,
         // only now that the freshness guard has passed (avoids synthesizing for a
