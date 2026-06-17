@@ -178,12 +178,16 @@ async def dispatch_jobs(
     db = get_admin_db()
     res = (
         db.table("users")
-        .select("id, last_checkin_at, created_at, timezone, morning_brief_hour, proactive_morning_brief")
+        .select("id, last_checkin_at, created_at, timezone, morning_brief_hour, proactive_morning_brief, google_reauth_required")
         .not_.is_("google_access_token", "null")
         .execute()
     )
     all_users = res.data or []
     users = [r for r in all_users if _is_active(r)]
+
+    reauth_count = sum(1 for r in all_users if r.get("google_reauth_required"))
+    if reauth_count:
+        print(f"[dispatch] {reauth_count} users need Google reconnect")
 
     ran, skipped, failed, dispatched = 0, 0, 0, 0
     for row in users:

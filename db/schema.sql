@@ -300,6 +300,12 @@ ALTER TABLE users
   ADD COLUMN IF NOT EXISTS last_morning_brief_at  timestamptz,
   ADD COLUMN IF NOT EXISTS last_checkin_at        timestamptz;
 
+-- ── Users: Google connection health ────────────────────────────────────────
+-- Set when a refresh token is rejected by Google (revoked/expired/invalidated).
+-- Cleared by POST /auth/google/tokens on successful reconnect.
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS google_reauth_required boolean NOT NULL DEFAULT false;
+
 -- ── Agent chats: proactive inbox flag ────────────────────────────────────────
 ALTER TABLE agent_chats
   ADD COLUMN IF NOT EXISTS is_proactive_inbox boolean NOT NULL DEFAULT false;

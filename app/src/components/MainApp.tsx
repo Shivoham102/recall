@@ -147,7 +147,15 @@ export function MainApp({ user, onLogout }: Props) {
           ))}
         </div>
         <NotificationCenter
-          onNavigate={(entry) => setTab(entry.kind === "reminder" ? "reminders" : "agent")}
+          onNavigate={(entry) =>
+            setTab(
+              entry.kind === "reminder"
+                ? "reminders"
+                : entry.kind === "google_reauth_alert"
+                  ? "profile"
+                  : "agent",
+            )
+          }
         />
         <button
           className="titlebar-icon-btn"

@@ -31,6 +31,7 @@ async def store_google_tokens(
         "google_access_token": encrypt_for_storage(body.provider_token),
         "google_refresh_token": encrypt_for_storage(body.provider_refresh_token),
         "google_token_expiry": body.google_token_expiry,
+        "google_reauth_required": False,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 

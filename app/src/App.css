@@ -2071,6 +2071,12 @@ body { background: transparent; overflow: hidden; }
   padding: 3px 8px;
 }
 
+.profile-connection__badge--warn {
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 28%, transparent);
+}
+
 .profile-section--footer { margin-top: auto; }
 
 .profile-signout {

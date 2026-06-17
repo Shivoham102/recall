@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from anthropic import AsyncAnthropic
 from anthropic.types import TextBlock, ToolUseBlock
 
+from google_auth import GoogleReauthRequired
+
 _client: AsyncAnthropic | None = None
 
 
@@ -29,6 +31,7 @@ class LoopResult:
     email_cards: list[dict] = field(default_factory=list)
     calendar_cards: list[dict] = field(default_factory=list)
     task_cards: list[dict] = field(default_factory=list)
+    reauth_required: bool = False
 
 
 async def run_headless_loop(
@@ -97,8 +100,14 @@ async def _run_loop(
                         res = await asyncio.wait_for(tool_fn(block.input), timeout=timeout_per_tool)
                 except asyncio.TimeoutError:
                     res = {"summary": f"{block.name} timed out", "error": True}
+                except GoogleReauthRequired:
+                    res = {"summary": "Google reconnect required", "error": True, "reauth_required": True}
                 except Exception as exc:
-                    res = {"summary": f"{block.name} failed: {exc}", "error": True}
+                    print(f"[proactive_loop] {block.name} failed: {exc}")
+                    res = {"summary": f"{block.name} unavailable", "error": True}
+
+                if res.get("reauth_required"):
+                    result.reauth_required = True
 
                 # Intercept surface tool outputs to populate cards
                 if block.name == "surface_cards" and not res.get("error"):

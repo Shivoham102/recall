@@ -2,10 +2,17 @@ import json
 import os
 import pathlib
 from datetime import datetime, timezone
+from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from security.crypto import decrypt_from_storage, encrypt_for_storage
+
+
+class GoogleReauthRequired(Exception):
+    """Raised when a user's Google connection needs a fresh sign-in: no stored
+    credentials, refresh token missing, or the refresh token was rejected by Google
+    (revoked, expired, or invalidated by the 50-token-per-client cap)."""
 
 SCOPES = [
     "openid",
@@ -41,26 +48,51 @@ def _legacy_file_oauth_enabled() -> bool:
     return os.environ.get("ALLOW_LEGACY_GOOGLE_FILE_OAUTH", "").lower() in {"1", "true", "yes"}
 
 
+def _insert_reauth_alert(user_id: str) -> None:
+    """One-time notification-center entry, delivered via the same proactive_jobs
+    pipeline as any other job (Realtime INSERT + undelivered-backlog fallback)."""
+    from db import get_admin_db
+
+    get_admin_db().table("proactive_jobs").insert({
+        "user_id": user_id,
+        "job_type": "google_reauth_alert",
+        "status": "done",
+        "delivered": False,
+        "result": {
+            "text": "Reconnect Google in Profile to keep Recall fully functional.",
+            "email_cards": [],
+            "calendar_cards": [],
+            "task_cards": [],
+            "metadata": {},
+        },
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+    }).execute()
+
+
 def get_credentials_for_user(user_id: str) -> Credentials:
     """Read Google credentials from Supabase users table and refresh if needed."""
     from db import get_admin_db
 
+    db = get_admin_db()
     res = (
-        get_admin_db()
-        .table("users")
-        .select("google_access_token, google_refresh_token, google_token_expiry")
+        db.table("users")
+        .select("google_access_token, google_refresh_token, google_token_expiry, google_reauth_required")
         .eq("id", user_id)
         .maybe_single()
         .execute()
     )
     if not res or not res.data:
-        raise ValueError(f"No Google credentials found for user {user_id!r}")
+        raise GoogleReauthRequired(f"No Google credentials found for user {user_id!r}")
 
     data = res.data
+    if data.get("google_reauth_required"):
+        # Already known broken — fail fast, no network call to Google.
+        raise GoogleReauthRequired(f"Google reconnect required for user {user_id!r}")
+
     access_token = decrypt_from_storage(data.get("google_access_token"))
     refresh_token = decrypt_from_storage(data.get("google_refresh_token"))
     if not refresh_token:
-        raise ValueError(f"Google reconnect required for user {user_id!r}")
+        raise GoogleReauthRequired(f"Google reconnect required for user {user_id!r}")
 
     expiry = None
     if data.get("google_token_expiry"):
@@ -81,12 +113,31 @@ def get_credentials_for_user(user_id: str) -> Credentials:
     )
 
     if not creds.valid and creds.refresh_token:
-        creds.refresh(Request())
+        try:
+            creds.refresh(Request())
+        except RefreshError:
+            # Terminal: refresh token revoked/expired. Flip the flag with an atomic
+            # conditional update so concurrent jobs racing this same user only insert
+            # one alert, then mark every caller's attempt as needing reconnect.
+            upd = (
+                db.table("users")
+                .update({
+                    "google_reauth_required": True,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
+                .eq("id", user_id)
+                .eq("google_reauth_required", False)
+                .execute()
+            )
+            if upd.data:
+                _insert_reauth_alert(user_id)
+            raise GoogleReauthRequired(f"Google reconnect required for user {user_id!r}") from None
+
         new_expiry = None
         if creds.expiry:
             e = creds.expiry if creds.expiry.tzinfo else creds.expiry.replace(tzinfo=timezone.utc)
             new_expiry = e.isoformat()
-        get_admin_db().table("users").update(
+        db.table("users").update(
             {
                 "google_access_token": encrypt_for_storage(creds.token),
                 "google_token_expiry": new_expiry,

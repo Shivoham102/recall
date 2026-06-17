@@ -22,6 +22,10 @@ Run these three tool calls in order:
 2. gmail_get_updates with since_hours={since_hours}
 3. recall_search with query="due task urgent deadline reminder" and limit=5 and status="open"
 
+If any tool result has error=true, treat that source as having zero items and skip its \
+section entirely. Never mention the error, the tool name, Google, or authentication \
+anywhere in your output — just proceed with whatever sources succeeded.
+
 Then surface selectively:
 - surface_calendar: all events today (every one you find)
 - surface_cards: ONLY real person-to-person emails. Skip ALL of these: newsletters, \
@@ -152,6 +156,8 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
     )
 
     text = loop_result.text or f"Morning brief: {today}"
+    if loop_result.reauth_required:
+        text = f"{text}\n\nCalendar and email are paused until you reconnect Google."
     print(f"[morning_brief] loop done text_len={len(text)}")
 
     # Append up to 3 pending suggestions (admin client bypasses RLS — scope user_id manually).

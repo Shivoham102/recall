@@ -244,4 +244,19 @@ async def profile_learned(user: dict = Depends(get_current_user)):
             counts[s] += 1
     counts["total"] = sum(counts.values())
 
-    return {"auto_brief": auto_brief, "habits": habits, "suggestions": counts}
+    # Separate query, unrelated to the pattern-learning data above: connection health.
+    user_res = (
+        db.table("users")
+        .select("google_reauth_required")
+        .eq("id", uid)
+        .maybe_single()
+        .execute()
+    )
+    google_reauth_required = bool((user_res.data or {}).get("google_reauth_required"))
+
+    return {
+        "auto_brief": auto_brief,
+        "habits": habits,
+        "suggestions": counts,
+        "google_reauth_required": google_reauth_required,
+    }

@@ -235,6 +235,7 @@ export interface LearnedProfile {
   auto_brief: string[];
   habits: LearnedHabit[];
   suggestions: { accepted: number; dismissed: number; pending: number; total: number };
+  google_reauth_required: boolean;
 }
 
 export async function getLearned(): Promise<LearnedProfile> {

@@ -22,7 +22,7 @@ export function ProfileTab({ user, onLogout, onShowOnboarding }: Props) {
       .catch(() => {});
     getLearned()
       .then(setLearned)
-      .catch(() => setLearned({ auto_brief: [], habits: [], suggestions: { accepted: 0, dismissed: 0, pending: 0, total: 0 } }));
+      .catch(() => setLearned({ auto_brief: [], habits: [], suggestions: { accepted: 0, dismissed: 0, pending: 0, total: 0 }, google_reauth_required: false }));
   }, []);
 
   useEffect(() => {
@@ -98,7 +98,9 @@ export function ProfileTab({ user, onLogout, onShowOnboarding }: Props) {
             <div className="profile-connection__name">Google</div>
             <div className="profile-connection__desc">Gmail · Calendar · Identity</div>
           </div>
-          <div className="profile-connection__badge">Active</div>
+          <div className={`profile-connection__badge${learned?.google_reauth_required ? " profile-connection__badge--warn" : ""}`}>
+            {learned?.google_reauth_required ? "Needs reconnect" : "Active"}
+          </div>
         </div>
         <button
           className="profile-btn"

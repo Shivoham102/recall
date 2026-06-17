@@ -107,6 +107,8 @@ export function proactiveLabel(jobType: string, result?: { email_cards?: unknown
       return "A follow-up draft is ready";
     case "pattern_learn":
       return "Patterns updated";
+    case "google_reauth_alert":
+      return "Reconnect Google to restore calendar and email";
     default:
       return "New update from Recall";
   }
