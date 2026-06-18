@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from db import get_admin_db
+from proactive.jobs._followup_judge import judge_followups
 from proactive.memory_context import get_proactive_memory_context
 from proactive.runner import ProactiveResult
 
@@ -69,82 +70,35 @@ def _memory_score(item: dict, memory_context: str) -> int:
     return score
 
 
-def _get_thread_snippets(svc, thread_id: str) -> str:
-    """Return last 8 messages as 'USER: snippet / COUNTERPARTY: snippet' lines."""
-    try:
-        thread = svc.users().threads().get(userId="me", id=thread_id, format="minimal").execute()
-        msgs = sorted(thread.get("messages", []), key=lambda m: int(m.get("internalDate", "0")))
-        lines = []
-        for msg in msgs[-8:]:
-            role = "USER" if "SENT" in msg.get("labelIds", []) else "COUNTERPARTY"
-            lines.append(f"{role}: {html.unescape(msg.get('snippet', ''))[:300]}")
-        return "\n".join(lines)
-    except Exception:
-        return ""
+def _last_message_is_user(svc, thread_id: str) -> bool:
+    """True if the most recent message in the thread was sent by the user (SENT label).
 
-
-async def _llm_filter_batch(candidates: list[dict], summaries: dict[str, str]) -> list[bool]:
+    Used by the closure check — derived from labelIds, not text, so it stays correct even
+    when a reply's body strips to empty (a pure-quoted reply).
     """
-    Single Haiku call to filter all candidates at once.
-    Returns list of bools (True = needs follow-up) in same order as candidates.
-    Falls back to False (drop) on any error to avoid polluting DB with false positives.
+    thread = svc.users().threads().get(userId="me", id=thread_id, format="minimal").execute()
+    msgs = sorted(thread.get("messages", []), key=lambda m: int(m.get("internalDate", "0")))
+    return bool(msgs) and "SENT" in msgs[-1].get("labelIds", [])
+
+
+def _resolve_and_clean_draft(db, svc, row: dict) -> None:
+    """Resolve an open thread judged 'no follow-up needed' and delete any orphan auto-draft.
+
+    The row may carry a live draft_gmail_id from an earlier 6am run; the draft job can't reach
+    it (it filters was_drafted=False), so clean it up here. Every tracked draft_gmail_id is an
+    auto-draft we created, so deleting it is safe.
     """
-    from anthropic import AsyncAnthropic  # noqa: PLC0415
-    import os  # noqa: PLC0415
-
-    if not candidates:
-        return []
-
-    lines = []
-    for i, t in enumerate(candidates):
-        summary = summaries.get(t["thread_id"], "")
-        condition = (
-            "USER has NOT replied after the request"
-            if t["trigger_type"] == "inbox_awaiting_reply"
-            else "COUNTERPARTY has NOT adequately replied to the commitment"
-        )
-        snippet = summary[:600] if summary else "(no thread data)"
-        lines.append(
-            f"[{i}] commitment: {t['commitment_text'][:120]}\n"
-            f"    condition: {condition}\n"
-            f"    thread:\n{snippet}"
-        )
-
-    prompt = (
-        "For each numbered email thread below, answer YES (needs follow-up) or NO (does not).\n"
-        "YES if: user sent a message or application awaiting a substantive reply; "
-        "thread has no counterparty reply yet.\n"
-        "NO if: meeting scheduled/accepted with confirmation, conversation explicitly concluded, "
-        "automated/system email, noreply sender, promotional or marketing email, newsletter.\n"
-        "Reply with ONLY a comma-separated list of YES/NO in order. Example: YES,NO,YES\n\n"
-        + "\n\n".join(lines)
-        + f"\n\nAnswer ({len(candidates)} items):"
-    )
-
-    try:
-        client = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-        resp = await asyncio.wait_for(
-            client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=50,
-                messages=[{"role": "user", "content": prompt}],
-            ),
-            timeout=20.0,
-        )
-        answers = [a.strip().upper() for a in resp.content[0].text.strip().split(",")]
-        results = []
-        for i in range(len(candidates)):
-            ans = answers[i] if i < len(answers) else "NO"  # partial response → drop
-            results.append(ans.startswith("Y"))
-        return results
-    except Exception as exc:
-        print(f"[follow_up_scan] _llm_filter_batch error: {exc} — dropping all")
-        return [False] * len(candidates)
-
-
-def _auto_yes(candidate: dict, snippet: str) -> bool:
-    """sent_commitment threads auto-YES — user sent it, follow-up is implied. LLM only for inbox."""
-    return candidate["trigger_type"] == "sent_commitment"
+    draft_id = row.get("draft_gmail_id")
+    if draft_id:
+        try:
+            svc.users().drafts().delete(userId="me", id=draft_id).execute()
+        except Exception as exc:
+            print(f"[follow_up_scan] orphan draft delete failed {draft_id}: {exc}")
+    update: dict = {"status": "resolved"}
+    if draft_id:
+        update["draft_gmail_id"] = None
+        update["draft_created_at"] = None
+    db.table("follow_up_threads").update(update).eq("id", row["id"]).execute()
 
 
 async def _search_raw_candidates(svc) -> list[dict]:
@@ -356,9 +310,7 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
     async def _check_closure(row: dict) -> str | None:
         async with cls_sem:
             try:
-                snippets = await asyncio.to_thread(_get_thread_snippets, svc, row["thread_id"])
-                last_line = snippets.strip().split("\n")[-1] if snippets.strip() else ""
-                if last_line.startswith("USER:"):
+                if await asyncio.to_thread(_last_message_is_user, svc, row["thread_id"]):
                     db.table("follow_up_threads").update({"status": "resolved"}).eq("id", row["id"]).execute()
                     return row["thread_id"]
             except Exception:
@@ -384,18 +336,48 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
     for _c in raw_candidates:
         print(f"[follow_up_scan] candidate: type={_c['trigger_type']} counterparty={_c['counterparty'][:40]} snippet={_c['commitment_text'][:60]}")
 
-    # sent_commitment → auto-YES (user sent it, no thread fetch needed).
-    # inbox_awaiting_reply → LLM filter using message snippet as context.
-    auto_yes_flags = [_auto_yes(t, "") for t in raw_candidates]
-    inbox_batch = [t for t, ay in zip(raw_candidates, auto_yes_flags) if not ay]
-    summaries = {t["thread_id"]: t["commitment_text"] for t in inbox_batch}
-    llm_results = await _llm_filter_batch(inbox_batch, summaries)
-    llm_map = {t["thread_id"]: f for t, f in zip(inbox_batch, llm_results)}
-    keep_flags = [ay or llm_map.get(t["thread_id"], False) for t, ay in zip(raw_candidates, auto_yes_flags)]
-    commitments = [t for t, keep in zip(raw_candidates, keep_flags) if keep]
-    auto_count = sum(auto_yes_flags)
-    print(f"[follow_up_scan] auto_yes={auto_count}/{len(raw_candidates)}, llm_inbox={len(inbox_batch)}")
-    t0 = _t(f"filter ({len(commitments)}/{len(raw_candidates)} kept, {auto_count} auto-YES)", t0)
+    # Fetch full-body thread context for each candidate + the user's calendar once, then judge
+    # every candidate (sent + inbox) with the calendar as context — no blanket auto-YES.
+    from tools.google_services import (  # noqa: PLC0415
+        calendar_events_window,
+        gmail_thread_role_bodies,
+    )
+
+    # Sequential gmail fetches — httplib2 is not thread-safe on the shared svc object.
+    contexts: list[str] = []
+    for c in raw_candidates:
+        contexts.append(await asyncio.to_thread(gmail_thread_role_bodies, svc, c["thread_id"]))
+    t0 = _t(f"thread_bodies ({len(raw_candidates)} fetched)", t0)
+
+    calendar_events = await calendar_events_window()
+    t0 = _t(f"calendar ({len(calendar_events)} events)", t0)
+
+    judge_input = [
+        {
+            "trigger_type": c["trigger_type"],
+            "commitment_text": c["commitment_text"],
+            "context": ctx,
+            "counterparty": c["counterparty"],
+            "subject": c.get("subject", ""),
+        }
+        for c, ctx in zip(raw_candidates, contexts)
+    ]
+    keep_flags = await judge_followups(judge_input, calendar_events)
+    commitments = [c for c, keep in zip(raw_candidates, keep_flags) if keep]
+
+    # Existing open rows judged "no follow-up needed" → resolve (and clean any orphan draft).
+    resolved_no = 0
+    for c, keep in zip(raw_candidates, keep_flags):
+        if keep:
+            continue
+        row = existing_by_thread.get(c["thread_id"])
+        if row and row.get("status") == "open":
+            await asyncio.to_thread(_resolve_and_clean_draft, db, svc, row)
+            existing_by_thread.pop(c["thread_id"], None)
+            resolved_no += 1
+
+    print(f"[follow_up_scan] judged {len(commitments)}/{len(raw_candidates)} kept, {resolved_no} resolved")
+    t0 = _t(f"filter ({len(commitments)}/{len(raw_candidates)} kept)", t0)
 
     # ── Insert new / nudge existing ───────────────────────────────────────────
     new_items: list[dict] = []

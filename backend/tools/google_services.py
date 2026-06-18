@@ -576,6 +576,38 @@ def _strip_quoted(text: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _role_body(msg: dict, per_msg: int = 700) -> str:
+    """One message → 'USER: body' / 'COUNTERPARTY: body' line.
+
+    Role from labelIds (SENT → USER). Quote-stripped full body, whitespace-collapsed,
+    capped at per_msg chars. Always emits the role line — even when the body strips to
+    empty (a pure-quoted reply) — so turn structure survives for the judge.
+    """
+    role = "USER" if "SENT" in msg.get("labelIds", []) else "COUNTERPARTY"
+    body = _strip_quoted(_extract_plain_text(msg.get("payload", {})))
+    body = re.sub(r"\s+", " ", body).strip()[:per_msg]
+    return f"{role}: {body}" if body else f"{role}: (no new text)"
+
+
+def thread_role_bodies_from_messages(msgs: list[dict], max_msgs: int = 6, per_msg: int = 700) -> str:
+    """Role-labeled, quote-stripped bodies of the last max_msgs messages (oldest→newest)."""
+    ordered = sorted(msgs, key=lambda m: int(m.get("internalDate", "0")))
+    return "\n".join(_role_body(m, per_msg) for m in ordered[-max_msgs:])
+
+
+def gmail_thread_role_bodies(svc, thread_id: str, max_msgs: int = 6, per_msg: int = 700) -> str:
+    """Fetch a thread (format=full) and return its last messages as role-labeled bodies.
+
+    Returns "" on fetch error so callers can degrade to whatever context they already have.
+    """
+    try:
+        thread = svc.users().threads().get(userId="me", id=thread_id, format="full").execute()
+        return thread_role_bodies_from_messages(thread.get("messages", []), max_msgs, per_msg)
+    except Exception as exc:
+        print(f"[gmail_thread_role_bodies] error {thread_id[:8]}: {exc}")
+        return ""
+
+
 async def gmail_find_contact(inp: dict) -> dict:
     """Search sent history to resolve a name/company to an email address."""
     name = inp["name"]
@@ -1116,6 +1148,54 @@ async def calendar_list(inp: dict) -> dict:
         "summary": f"{len(events)} event(s) in the next {days_ahead} days",
         "events": formatted,
     }
+
+
+async def calendar_events_window(days_back: int = 7, days_ahead: int = 60) -> list[dict]:
+    """Rich calendar fetch for follow-up correlation.
+
+    Wider and richer than calendar_list: includes organizer/attendees/description so an LLM
+    can match a thread to a scheduled meeting by company/role/people/topic. Window spans the
+    recent past (a just-accepted invite) through weeks ahead (interviews land far out).
+    Returns [] on any error so callers degrade to email-only judgment.
+    """
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(days=days_back)
+    end = now + timedelta(days=days_ahead)
+
+    def _list():
+        svc = _calendar_service()
+        result = svc.events().list(
+            calendarId="primary",
+            timeMin=start.isoformat(),
+            timeMax=end.isoformat(),
+            maxResults=100,
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+        return result.get("items", [])
+
+    try:
+        events = await asyncio.to_thread(_list)
+    except Exception as exc:
+        print(f"[calendar_events_window] error: {exc}")
+        return []
+
+    out: list[dict] = []
+    for ev in events:
+        start_raw = ev["start"].get("dateTime", ev["start"].get("date", ""))
+        attendees = [
+            (a.get("displayName") or a.get("email", "")).strip()
+            for a in ev.get("attendees", []) if a.get("email")
+        ]
+        organizer = ev.get("organizer", {})
+        out.append({
+            "title": ev.get("summary", "(no title)"),
+            "start": start_raw,
+            "organizer": organizer.get("displayName") or organizer.get("email", ""),
+            "attendees": [a for a in attendees if a],
+            "description": (ev.get("description", "") or "")[:300],
+        })
+    return out
 
 
 async def calendar_create(inp: dict) -> dict:

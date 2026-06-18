@@ -13,6 +13,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from db import get_admin_db
+from proactive.jobs._followup_judge import judge_followups
 from proactive.memory_context import get_proactive_memory_context
 from proactive.runner import ProactiveResult
 
@@ -44,54 +45,39 @@ def _parse_ts(iso_str: str) -> float:
 
 def _get_thread_draft_meta(svc, thread_id: str) -> dict:
     """
-    Two-call fetch per draft thread:
-      1. format=minimal  → message snippets + labelIds (for context summary)
-      2. messages.get(format=metadata) on last message → Message-ID, References, To, Cc
-    If last message is not SENT (counterparty replied last), does a 3rd call for To/Cc
-    from the last SENT message. Typical follow-up case (user sent last) = 2 calls.
-    Returns in_reply_to, references, cc, to, context_summary.
+    Single format=full fetch per draft thread. One response carries bodies AND headers for
+    every message, so it replaces the old minimal + metadata (+ conditional last-sent) calls:
+      - context_summary: full quote-stripped bodies of the last messages (role-labeled)
+      - threading headers (Message-ID, References, Subject) from the last message
+      - To/Cc from the last SENT message (the user's own addressing), else the last message
+    Returns in_reply_to, references, cc, to, subject, context_summary.
     """
     import email.utils as _eu  # noqa: PLC0415
-    import html as _html  # noqa: PLC0415
+    from tools.google_services import thread_role_bodies_from_messages  # noqa: PLC0415
     try:
-        # Call 1: minimal — snippets + labelIds for all messages
-        thread = svc.users().threads().get(userId="me", id=thread_id, format="minimal").execute()
+        thread = svc.users().threads().get(userId="me", id=thread_id, format="full").execute()
         msgs = sorted(thread.get("messages", []), key=lambda m: int(m.get("internalDate", "0")))
         if not msgs:
-            return {"in_reply_to": "", "references": "", "cc": "", "to": "", "context_summary": ""}
+            return {"in_reply_to": "", "references": "", "cc": "", "to": "", "subject": "", "context_summary": ""}
 
-        lines = []
-        for msg in msgs[-6:]:
-            role = "USER" if "SENT" in msg.get("labelIds", []) else "COUNTERPARTY"
-            snippet = _html.unescape(msg.get("snippet", ""))[:300]
-            if snippet:
-                lines.append(f"{role}: {snippet}")
-        context_summary = "\n".join(lines)
+        context_summary = thread_role_bodies_from_messages(msgs)
 
         last_msg = msgs[-1]
         last_sent = next((m for m in reversed(msgs) if "SENT" in m.get("labelIds", [])), None)
 
-        # Call 2: metadata on last message for threading headers + To/Cc (if SENT)
-        detail = svc.users().messages().get(
-            userId="me", id=last_msg["id"], format="metadata",
-            metadataHeaders=["Message-ID", "References", "To", "Cc", "Subject"],
-        ).execute()
-        hdrs = {h["name"].lower(): h["value"] for h in detail.get("payload", {}).get("headers", [])}
+        def _hdrs(msg: dict) -> dict:
+            return {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
+
+        hdrs = _hdrs(last_msg)
         latest_id = hdrs.get("message-id", "")
         subject = hdrs.get("subject", "")
         ref_parts = hdrs.get("references", "").split() if hdrs.get("references") else []
         if latest_id and latest_id not in ref_parts:
             ref_parts.append(latest_id)
 
-        # Use To/Cc from detail if last msg is SENT; otherwise fetch last sent message
-        if "SENT" not in last_msg.get("labelIds", []) and last_sent:
-            sent_detail = svc.users().messages().get(
-                userId="me", id=last_sent["id"], format="metadata",
-                metadataHeaders=["To", "Cc"],
-            ).execute()
-            sent_hdrs = {h["name"].lower(): h["value"] for h in sent_detail.get("payload", {}).get("headers", [])}
-        else:
-            sent_hdrs = hdrs
+        # To/Cc come from the last SENT message (preserves the original behavior: last-sent if a
+        # sent message exists — which equals last_msg when the user sent last — else last_msg).
+        sent_hdrs = _hdrs(last_sent) if last_sent else hdrs
 
         cc_pairs = _eu.getaddresses([sent_hdrs.get("cc", "")]) if sent_hdrs.get("cc") else []
         cc_str = ", ".join(addr for _, addr in cc_pairs if addr)
@@ -194,6 +180,7 @@ async def _run_draft_phase(
     """Draft follow-up emails for qualifying open threads (called only from follow_up_draft.run())."""
     import context  # ContextVar module — context.py:7  # noqa: PLC0415
     from tools.google_services import (  # noqa: PLC0415
+        calendar_events_window,
         gmail_fetch_style_samples,
         gmail_reply_draft,
     )
@@ -201,7 +188,7 @@ async def _run_draft_phase(
     cutoff = (now - timedelta(hours=48)).isoformat()
     candidates = (
         db.table("follow_up_threads")
-        .select("id, thread_id, counterparty, commitment_text")
+        .select("id, thread_id, counterparty, commitment_text, trigger_type")
         .eq("user_id", user_id)
         .eq("status", "open")
         .eq("was_drafted", False)
@@ -255,10 +242,9 @@ async def _run_draft_phase(
     clean_candidates = list(by_counterparty.values())[:5]  # max 5 drafts per run
     print(f"[follow_up_draft] {len(clean_candidates)} candidates after counterparty dedup (capped at 5)")
 
-    async def _draft_one(thread: dict) -> dict | None:
+    async def _draft_one(thread: dict, meta: dict) -> dict | None:
         try:
             t_start = time.perf_counter()
-            meta = await asyncio.to_thread(_get_thread_draft_meta, svc, thread["thread_id"])
             counterparty = meta["to"] or thread["counterparty"]
 
             # Guard: skip if no valid email — avoids "Invalid To header" from Gmail
@@ -343,9 +329,40 @@ async def _run_draft_phase(
             print(f"[follow_up_draft] _draft_one error {thread['thread_id'][:8]}: {exc}")
             return None
 
-    task_cards = []
+    # Fetch thread meta (full bodies + threading headers) for all candidates up front, then
+    # run one calendar-aware judge before writing any draft. This is the final, freshest gate:
+    # threads whose conversation has concluded or whose meeting/interview is now on the calendar
+    # are resolved and skipped instead of drafted.
+    metas = []
     for t in clean_candidates:
-        r = await _draft_one(t)
+        metas.append(await asyncio.to_thread(_get_thread_draft_meta, svc, t["thread_id"]))
+    t0 = _t("draft_meta_fetch", t0)
+
+    calendar_events = await calendar_events_window()
+    judge_input = [
+        {
+            "trigger_type": t.get("trigger_type") or "sent_commitment",
+            "commitment_text": t.get("commitment_text", ""),
+            "context": m.get("context_summary") or t.get("commitment_text", ""),
+            "counterparty": t.get("counterparty", ""),
+            "subject": m.get("subject", ""),
+        }
+        for t, m in zip(clean_candidates, metas)
+    ]
+    keep_flags = await judge_followups(judge_input, calendar_events)
+
+    survivors = []
+    for t, m, keep in zip(clean_candidates, metas, keep_flags):
+        if keep:
+            survivors.append((t, m))
+        else:
+            db.table("follow_up_threads").update({"status": "resolved"}).eq("id", t["id"]).execute()
+            print(f"[follow_up_draft] judged no follow-up needed, resolved {t['thread_id'][:8]}")
+    print(f"[follow_up_draft] {len(survivors)}/{len(clean_candidates)} survive judge ({len(calendar_events)} cal events)")
+
+    task_cards = []
+    for t, m in survivors:
+        r = await _draft_one(t, m)
         if isinstance(r, dict):
             task_cards.append(r)
     _t(f"all_drafts ({len(task_cards)}/{len(candidates)} succeeded)", t0)
