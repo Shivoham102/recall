@@ -481,7 +481,11 @@ async def get_memory_tab_data(user_id: str) -> dict:
     ctx = await get_user_profile(user_id, timeout=LIVE_TIMEOUT_SECONDS, allow_stale=True)
     return {
         **ctx.as_dict(),
-        "configured": _get_client() is not None,
+        # "configured" = an API key is set, independent of the SUPERMEMORY_ENABLED kill
+        # switch (which surfaces via ctx.enabled). This lets the UI distinguish "set up but
+        # turned off" from "never set up"; _get_client() returns None when disabled, which
+        # conflated the two.
+        "configured": bool(os.environ.get("SUPERMEMORY_API_KEY", "").strip()),
         "processing_hint": "New memories may take a moment to appear.",
     }
 

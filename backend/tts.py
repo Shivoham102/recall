@@ -9,7 +9,8 @@ _client: AsyncCartesia | None = None
 def _get_client() -> AsyncCartesia:
     global _client
     if _client is None:
-        _client = AsyncCartesia(api_key=os.environ["CARTESIA_API_KEY"])
+        # Bound TTS so a stalled Cartesia request can't hang a capture/reminder indefinitely.
+        _client = AsyncCartesia(api_key=os.environ["CARTESIA_API_KEY"], timeout=20.0)
     return _client
 
 

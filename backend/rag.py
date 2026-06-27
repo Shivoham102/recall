@@ -11,7 +11,10 @@ _openai: OpenAI | None = None
 def _get_openai() -> OpenAI:
     global _openai
     if _openai is None:
-        _openai = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        # Bound the embed call: default OpenAI timeout is 600s, which can pin a capture or
+        # proactive job against Vercel's function cap if OpenAI stalls. 15s + 2 retries (the
+        # SDK retries with exponential backoff on timeouts/5xx) fails fast instead of hanging.
+        _openai = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=15.0, max_retries=2)
     return _openai
 
 

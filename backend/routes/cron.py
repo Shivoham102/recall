@@ -1,3 +1,4 @@
+import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -7,6 +8,10 @@ from db import get_admin_db
 from proactive.runner import run_job
 
 router = APIRouter()
+
+# Per-job ceiling in the dispatch loop. Slightly above the headless loop's own 240s budget
+# so a normally-slow job still completes, but a truly stuck one is cut loose.
+JOB_TIMEOUT_SECONDS = 250
 
 
 def _is_authorized(request: Request, authorization: str | None, x_cron_secret: str | None) -> bool:
@@ -203,11 +208,19 @@ async def dispatch_jobs(
         for job_type in _due_jobs(local_hour, brief_hour, brief_enabled):
             dispatched += 1
             try:
-                result = await run_job(row["id"], job_type, user_tz=tz_name)
+                # Cap each job so one stuck user (e.g. a hung external call not covered by
+                # the headless loop's own 240s budget) can't consume the whole cron run and
+                # starve every user after them in the loop.
+                result = await asyncio.wait_for(
+                    run_job(row["id"], job_type, user_tz=tz_name), timeout=JOB_TIMEOUT_SECONDS
+                )
                 if result is None:
                     skipped += 1
                 else:
                     ran += 1
+            except asyncio.TimeoutError:
+                failed += 1
+                print(f"[dispatch] {job_type} timed out for user {row['id']}")
             except Exception as exc:
                 failed += 1
                 print(f"[dispatch] {job_type} failed for user {row['id']}: {exc}")

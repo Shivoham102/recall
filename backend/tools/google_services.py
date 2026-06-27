@@ -352,11 +352,9 @@ def _relative_time(dt: datetime) -> str:
     return f"{hours // 24}d ago"
 
 
-# Single-user app — store last fetches so surface_* tools can look up by index
-_last_email_fetch: list = []
-_last_thread_candidate_fetch: list = []
-_last_calendar_fetch: list = []
-_style_profile_cache: dict[str, dict] = {}
+# Last fetches for surface_* index lookups live in per-request ContextVars (see context.py),
+# not module globals — globals leaked one user's fetch into another's request on warm instances.
+_style_profile_cache: dict[str, dict] = {}  # keyed by user_id, so safe to share across requests
 
 
 def _extract_keywords(query_text: str) -> list[str]:
@@ -494,9 +492,8 @@ async def gmail_get_updates(inp: dict) -> dict:
         emails.sort(key=lambda e: (not e["important"], not e["unread"]))
         return emails[:15]
 
-    global _last_email_fetch
     emails = await asyncio.to_thread(_fetch)
-    _last_email_fetch = emails  # stored for surface_cards lookup by index
+    context.current_email_fetch.set(emails)  # per-request scratch for surface_cards index lookup
 
     # Update check-in timestamp
     await asyncio.to_thread(_save_last_checkin, now)
@@ -529,7 +526,11 @@ async def surface_cards(inp: dict) -> dict:
     The agent calls this with the indices of emails it is about to discuss."""
     source = inp.get("source", "updates")
     indices = inp.get("indices", [])
-    source_items = _last_email_fetch if source != "thread_search" else _last_thread_candidate_fetch
+    source_items = (
+        context.current_email_fetch.get([])
+        if source != "thread_search"
+        else context.current_thread_candidate_fetch.get([])
+    )
     selected = [source_items[i] for i in indices if i < len(source_items)]
     return {
         "summary": f"Showing {len(selected)} card(s)",
@@ -543,7 +544,8 @@ async def surface_calendar(inp: dict) -> dict:
     """Tells the frontend which calendar events to render as cards.
     Call after calendar_list with the indices of events worth highlighting."""
     indices = inp.get("indices", [])
-    selected = [_last_calendar_fetch[i] for i in indices if i < len(_last_calendar_fetch)]
+    cal = context.current_calendar_fetch.get([])
+    selected = [cal[i] for i in indices if i < len(cal)]
     return {
         "summary": f"Showing {len(selected)} event(s)",
         "card_type": "calendar",
@@ -744,8 +746,7 @@ async def gmail_find_followup_thread(inp: dict) -> dict:
 
     ranked = await asyncio.to_thread(_search)
 
-    global _last_thread_candidate_fetch
-    _last_thread_candidate_fetch = [
+    context.current_thread_candidate_fetch.set([
         {
             "sender": c["counterparty"],
             "subject": c["subject"],
@@ -755,7 +756,7 @@ async def gmail_find_followup_thread(inp: dict) -> dict:
             "important": c["source_mailbox"] == "sent",
         }
         for c in ranked[:5]
-    ]
+    ])
 
     if not ranked:
         return {
@@ -1127,14 +1128,13 @@ async def calendar_list(inp: dict) -> dict:
         return result.get("items", [])
 
     events = await asyncio.to_thread(_list)
-    global _last_calendar_fetch
-    _last_calendar_fetch = []
+    cal_fetch: list = []
     formatted = []
     for ev in events:
         start_raw = ev["start"].get("dateTime", ev["start"].get("date", ""))
         end_raw   = ev["end"].get("dateTime",   ev["end"].get("date",   ""))
         is_all_day = "dateTime" not in ev["start"]
-        _last_calendar_fetch.append({
+        cal_fetch.append({
             "title":      ev.get("summary", "(no title)"),
             "start":      start_raw,
             "end":        end_raw,
@@ -1142,8 +1142,9 @@ async def calendar_list(inp: dict) -> dict:
             "location":   ev.get("location", ""),
             "is_all_day": is_all_day,
         })
-        formatted.append(f"[{len(_last_calendar_fetch) - 1}] {start_raw[:16]} — {ev.get('summary', '(no title)')}")
+        formatted.append(f"[{len(cal_fetch) - 1}] {start_raw[:16]} — {ev.get('summary', '(no title)')}")
 
+    context.current_calendar_fetch.set(cal_fetch)  # per-request scratch for surface_calendar
     return {
         "summary": f"{len(events)} event(s) in the next {days_ahead} days",
         "events": formatted,

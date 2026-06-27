@@ -1,10 +1,13 @@
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import context
 from db import get_admin_db
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -33,7 +36,14 @@ _DEDUPE_WINDOWS: dict[str, timedelta] = {
 
 MAX_RETRIES = 3
 
+# follow_up_scan and follow_up_draft both mutate the same follow_up_threads rows / Gmail
+# drafts for a user. scan keys its lock by nothing (no single thread), draft keys by thread id,
+# so a per-(job_type, context_key) lock never serializes them and they can race on draft_gmail_id.
+# Collapse the whole family onto one per-user lock key so scan and draft never overlap.
+_LOCK_FAMILY = {"follow_up_scan": "follow_up", "follow_up_draft": "follow_up"}
+
 # In-process locks prevent two concurrent invocations of the same (user, job) pair.
+# NOTE: in-process only — serializes within one warm serverless instance, not across instances.
 _locks: dict[str, asyncio.Lock] = {}
 _locks_mu = asyncio.Lock()
 
@@ -61,7 +71,10 @@ async def run_job(
       - no row                    → insert, then execute
     retry_count is incremented only on failure, not on each attempt.
     """
-    lock_key = f"{user_id}:{job_type}:{context_key or ''}"
+    # Follow-up family shares one per-user lock (drop context_key) so scan and draft serialize;
+    # all other jobs keep the per-(job, context) key.
+    family = _LOCK_FAMILY.get(job_type)
+    lock_key = f"{user_id}:{family}" if family else f"{user_id}:{job_type}:{context_key or ''}"
     lock = await _get_lock(lock_key)
     if lock.locked():
         return None
@@ -167,7 +180,18 @@ async def run_job(
             terminal = new_retries >= MAX_RETRIES
             db.table("proactive_jobs").update(update).eq("id", job_id).execute()
             if terminal:
+                # Terminal failure was previously only visible as a bare str(exc) printed by
+                # the dispatch loop (and not at all for direct /trigger calls). Log with the
+                # traceback so it is diagnosable in Vercel logs instead of vanishing.
+                logger.error(
+                    "proactive job %s failed terminally for user %s after %d attempts",
+                    job_type, user_id, new_retries, exc_info=True,
+                )
                 raise  # only surface terminal failures; retryable ones return None
+            logger.warning(
+                "proactive job %s failed for user %s (attempt %d/%d), will retry: %s",
+                job_type, user_id, new_retries, MAX_RETRIES, exc,
+            )
             return None
 
         finally:

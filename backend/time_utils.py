@@ -14,6 +14,16 @@ def is_valid_iana(tz: str) -> bool:
         return False
 
 
+def resolve_timezone(*candidates: str | None) -> str:
+    """First valid IANA tz among the candidates, else 'UTC'. Lets callers prefer a
+    request-supplied tz, then the user's stored tz, then UTC — instead of collapsing
+    straight to UTC and producing wrong due times for users in other zones."""
+    for c in candidates:
+        if c and is_valid_iana(c):
+            return c
+    return "UTC"
+
+
 def recurrence_due_hint(recurrence: dict) -> str:
     """Human-ish due_hint string for a recurring item, so the Tasks/Reminders split (which keys
     off due_hint being non-null) always classifies recurring items as reminders."""

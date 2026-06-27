@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -6,6 +7,7 @@ from tts import synthesize
 from auth import get_current_user
 from time_utils import next_occurrence
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -56,7 +58,7 @@ async def get_due_reminders(silent: bool = False, user: dict = Depends(get_curre
     result = (
         get_db()
         .table("recall_items")
-        .select("id, content, intent_type, reminder_text, recurrence")
+        .select("id, content, intent_type, reminder_text, recurrence, due_at")
         .eq("user_id", user["sub"])
         .lte("due_at", now)
         .is_("reminded_at", "null")
@@ -69,6 +71,49 @@ async def get_due_reminders(silent: bool = False, user: dict = Depends(get_curre
 
     output = []
     for item in items:
+        # Claim the fire with a compare-and-set BEFORE synthesizing TTS. Two concurrent
+        # /reminders/due calls both pass the SELECT (reminded_at still null / due_at still
+        # past); the CAS lets exactly one win so we never fire — or burn TTS — twice.
+        # Recurring: roll due_at forward only if it still equals the value we read.
+        # One-off / malformed recurrence: set reminded_at only if still null.
+        recurrence = item.get("recurrence")
+        if recurrence:
+            try:
+                next_due = next_occurrence(recurrence, datetime.now(timezone.utc))
+                claim = (
+                    get_db().table("recall_items")
+                    .update({"due_at": next_due})
+                    .eq("id", item["id"])
+                    .eq("due_at", item["due_at"])
+                    .execute()
+                )
+            except Exception:
+                # Malformed recurrence rule — can't roll forward. Mark reminded so it fires
+                # once and stops (leaving reminded_at null would re-fire every poll). Log it
+                # instead of swallowing so a broken rule is diagnosable, not silently lost.
+                logger.warning(
+                    "reminders.due: malformed recurrence for item %s (user %s), firing once and stopping: %r",
+                    item["id"], user["sub"], item.get("recurrence"),
+                )
+                claim = (
+                    get_db().table("recall_items")
+                    .update({"reminded_at": now})
+                    .eq("id", item["id"])
+                    .is_("reminded_at", "null")
+                    .execute()
+                )
+        else:
+            claim = (
+                get_db().table("recall_items")
+                .update({"reminded_at": now})
+                .eq("id", item["id"])
+                .is_("reminded_at", "null")
+                .execute()
+            )
+        if not (claim.data or []):
+            continue  # another concurrent caller already fired this one — skip it
+
+        # We own this fire. Now (and only now) pay for TTS.
         if silent:
             audio = ""  # client will card it — don't burn TTS on audio it discards
         else:
@@ -77,19 +122,6 @@ async def get_due_reminders(silent: bool = False, user: dict = Depends(get_curre
                 audio = await synthesize(spoken)
             except Exception:
                 audio = ""  # TTS unavailable (e.g. quota) — still fire, just silent
-        # Recurring reminders: fire once (late if overdue), then roll due_at forward to the
-        # next future occurrence and leave reminded_at null so they fire again. One-off
-        # reminders: mark reminded so they don't repeat.
-        recurrence = item.get("recurrence")
-        if recurrence:
-            try:
-                next_due = next_occurrence(recurrence, datetime.now(timezone.utc))
-                get_db().table("recall_items").update({"due_at": next_due}).eq("id", item["id"]).execute()
-            except Exception:
-                # Malformed recurrence — mark reminded to avoid a fire loop
-                get_db().table("recall_items").update({"reminded_at": now}).eq("id", item["id"]).execute()
-        else:
-            get_db().table("recall_items").update({"reminded_at": now}).eq("id", item["id"]).execute()
         output.append({
             "id": item["id"],
             "content": item["content"],

@@ -5,7 +5,7 @@ Scans inbox for high-priority unread emails and surfaces them.
 Not a scheduled cron — call via POST /agent/proactive/trigger {job_type: "email_triage"}.
 Delivers only when high-priority items are found; silent otherwise.
 """
-import tools.google_services as gsvcs
+import context
 from tools.google_services import gmail_get_updates
 from proactive.memory_context import get_proactive_memory_context
 from proactive.runner import ProactiveResult
@@ -24,7 +24,7 @@ def _memory_score(email: dict, memory_context: str) -> int:
 
 async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC") -> ProactiveResult:
     await gmail_get_updates({"since_hours": 2})
-    emails = list(gsvcs._last_email_fetch)
+    emails = list(context.current_email_fetch.get([]))
     memory_context = await get_proactive_memory_context(user_id, "email triage important people projects priorities")
 
     # Prefer unread + important, fall back to any unread (max 3)

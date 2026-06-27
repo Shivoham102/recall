@@ -25,7 +25,7 @@ _admin = _db_module.get_admin_db()
 _db_module._client = _admin  # get_db() will return admin client; bypasses RLS
 
 from datetime import datetime, timedelta, timezone
-from routes.reminders import mark_missed, get_pending_reminders, dismiss_reminders, DismissRequest, recent_fired_reminders
+from routes.reminders import mark_missed, get_pending_reminders, dismiss_reminders, DismissRequest, recent_fired_reminders, get_due_reminders
 from tools.memory import recall_update_item
 import context
 
@@ -196,6 +196,33 @@ def test_status_only_update_keeps_reminded_at():
     assert row["reminded_at"] is not None, "status-only update must not clear reminded_at"
     assert row["status"] == "resolved"
 
+def test_due_one_off_fires_once_on_repeat():
+    # A due one-off must fire on the first /reminders/due call and NOT again on a second
+    # back-to-back call (the focus + poll double-call case). The CAS guard on reminded_at
+    # makes the second call return nothing.
+    id_ = _insert(-0.1, status="open")  # 6 min overdue
+    first = asyncio.run(get_due_reminders(silent=True, user=TEST_USER))
+    assert id_ in [r["id"] for r in first], "due one-off should fire on first call"
+    second = asyncio.run(get_due_reminders(silent=True, user=TEST_USER))
+    assert id_ not in [r["id"] for r in second], "one-off must not fire twice"
+    assert _row(id_)["reminded_at"] is not None, "one-off should be marked reminded after firing"
+
+
+def test_due_recurring_rolls_once_on_repeat():
+    # A due recurring reminder fires once and rolls due_at forward; a second back-to-back
+    # call must not fire it again (due_at is now in the future) and must not double-roll.
+    rec = {"freq": "daily", "time": "06:00", "tz": "UTC"}
+    id_ = _insert(-0.1, status="open", recurrence=rec)
+    first = asyncio.run(get_due_reminders(silent=True, user=TEST_USER))
+    assert id_ in [r["id"] for r in first], "due recurring should fire on first call"
+    rolled_due = _row(id_)["due_at"]
+    assert datetime.fromisoformat(rolled_due) > datetime.now(timezone.utc), "due_at must roll to the future"
+    assert _row(id_)["reminded_at"] is None, "recurring must keep reminded_at null"
+    second = asyncio.run(get_due_reminders(silent=True, user=TEST_USER))
+    assert id_ not in [r["id"] for r in second], "recurring must not fire again same poll"
+    assert _row(id_)["due_at"] == rolled_due, "recurring must not double-roll"
+
+
 def test_recent_fired_reminders_window():
     now = datetime.now(timezone.utc)
     fresh = _insert(-0.1, status="open", reminded_at=(now - timedelta(minutes=5)).isoformat())
@@ -226,6 +253,8 @@ TESTS = [
     test_update_clears_reminded_at_on_reschedule,
     test_update_reopens_missed_on_reschedule,
     test_status_only_update_keeps_reminded_at,
+    test_due_one_off_fires_once_on_repeat,
+    test_due_recurring_rolls_once_on_repeat,
     test_recent_fired_reminders_window,
 ]
 

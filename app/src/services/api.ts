@@ -478,6 +478,8 @@ export function connectProactiveStream(
   let channel: ReturnType<typeof supabase.channel> | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let checkinTimer: ReturnType<typeof setInterval> | undefined;
+  // Set inside connect(); lets the stable onFocus handler trigger a full backlog drain.
+  let drain: (() => Promise<void>) | null = null;
 
   const SEEN_KEY = "recall_proactive_seen_ids";
 
@@ -498,9 +500,11 @@ export function connectProactiveStream(
     } catch { /* quota exceeded — ignore */ }
   }
 
-  // Keep last_checkin_at fresh on a long-lived session (window focus + 6h timer),
-  // covering sessions that stay subscribed for days without a reconnect.
-  const onFocus = () => { void initProactive().catch(() => {}); };
+  // On focus: re-drain the backlog (also bumps last_checkin_at via initProactive inside
+  // drain). This replays any job that was returned markSeen:false because the inbox chat
+  // wasn't ready yet — otherwise it would wait for a channel reconnect, which can be hours.
+  // handleRow is idempotent (seenIds + delivered gate), so re-draining is safe.
+  const onFocus = () => { void drain?.().catch(() => {}); };
 
   async function connect() {
     if (cancelled) return;
@@ -536,6 +540,18 @@ export function connectProactiveStream(
       if (result?.markSeen) markSeen(row.id);   // consumer acks; we only mark seen
     }
 
+    // Fetch the inbox id + backlog, emit `connected` (loads the inbox chat into memory),
+    // then replay backlog + any rows that raced ahead. Idempotent: seenIds + the delivered
+    // gate dedup overlaps, so it is safe to call on the initial attach, every reconnect,
+    // and on window focus.
+    drain = async () => {
+      const { proactive_chat_id, jobs } = await initProactive();
+      proactiveChatId = proactive_chat_id;                       // unblocks handleRow
+      await onEvent({ type: "connected", proactive_chat_id });   // preserves connected handler
+      const queued = pending.splice(0);                          // flush rows that raced ahead
+      for (const row of [...jobs, ...queued]) await handleRow(row); // seenIds dedups overlaps
+    };
+
     channel = supabase
       .channel(`proactive:${uid}`)
       .on(
@@ -546,11 +562,7 @@ export function connectProactiveStream(
       .subscribe(async (status) => {
         if (cancelled || status !== "SUBSCRIBED") return;            // also fires on reconnect
         try {
-          const { proactive_chat_id, jobs } = await initProactive();
-          proactiveChatId = proactive_chat_id;                       // unblocks handleRow
-          await onEvent({ type: "connected", proactive_chat_id });   // preserves connected handler
-          const queued = pending.splice(0);                          // flush rows that raced ahead
-          for (const row of [...jobs, ...queued]) await handleRow(row); // seenIds dedups overlaps
+          await drain?.();
         } catch (err) {
           console.error("[proactive] init/drain failed:", err);
         }

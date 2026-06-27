@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import re
 from db import get_db
 from auth import get_current_user
-from time_utils import parse_due_at, is_valid_iana
+from time_utils import parse_due_at, resolve_timezone
 
 router = APIRouter()
 
@@ -119,9 +119,12 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(get_current
     elif body.recurrence is not None:
         update["recurrence"] = body.recurrence
 
-    # A new due_hint (legacy/voice path) is parsed to due_at in the user's tz.
+    # A new due_hint (legacy/voice path) is parsed to due_at in the user's tz. Prefer the
+    # request-supplied tz, then the user's stored tz, then UTC — never skip a known-good
+    # stored tz, or a user in PST gets due times parsed as UTC.
     if body.due_hint is not None and not body.clear_recurrence:
-        tz = body.timezone if (body.timezone and is_valid_iana(body.timezone)) else "UTC"
+        stored = db.table("users").select("timezone").eq("id", user["sub"]).maybe_single().execute()
+        tz = resolve_timezone(body.timezone, (stored.data or {}).get("timezone"))
         due_at = parse_due_at(body.due_hint, tz)
         if not due_at:
             raise HTTPException(status_code=422, detail=f"Could not parse due time: {body.due_hint}")
