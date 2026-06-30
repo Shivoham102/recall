@@ -23,7 +23,12 @@ CHILD_TIMEOUT_SECONDS = 285
 
 
 def _self_base_url() -> str:
-    """Base URL to call our own deployment for fan-out. Vercel sets VERCEL_URL (host only)."""
+    """Base URL to call our own deployment for fan-out. Prefer the PUBLIC production domain:
+    VERCEL_URL is the deployment-specific host, which Deployment Protection blocks (self-POSTs to
+    it 401), whereas VERCEL_PROJECT_PRODUCTION_URL is the public alias the app already uses."""
+    prod_url = os.environ.get("VERCEL_PROJECT_PRODUCTION_URL", "").strip()
+    if prod_url:
+        return f"https://{prod_url}"
     vercel_url = os.environ.get("VERCEL_URL", "").strip()
     if vercel_url:
         return f"https://{vercel_url}"
