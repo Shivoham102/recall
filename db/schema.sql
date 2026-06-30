@@ -407,8 +407,14 @@ ALTER TABLE users
   ADD COLUMN IF NOT EXISTS timezone               text    DEFAULT 'UTC',
   ADD COLUMN IF NOT EXISTS proactive_morning_brief boolean DEFAULT true,
   ADD COLUMN IF NOT EXISTS morning_brief_hour     int     DEFAULT 7,
-  ADD COLUMN IF NOT EXISTS last_morning_brief_at  timestamptz,
   ADD COLUMN IF NOT EXISTS last_checkin_at        timestamptz;
+
+-- Retired: morning-brief dedupe moved to proactive_jobs rows (job_type='morning_brief'),
+-- so this column was never written or read. Drop it.
+ALTER TABLE users DROP COLUMN IF EXISTS last_morning_brief_at;
+
+-- Retired: ui_events was never wired to any code path (no inserts, reads, or cleanup).
+DROP TABLE IF EXISTS ui_events;
 
 -- ── Users: Google connection health ────────────────────────────────────────
 -- Set when a refresh token is rejected by Google (revoked/expired/invalidated).

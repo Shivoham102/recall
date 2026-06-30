@@ -35,12 +35,17 @@ async def store_google_tokens(
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
+    # Only write name when the JWT actually carries one, so a token-only refresh
+    # whose claims lack a name never blanks an existing users.name.
+    name = user.get("name", "")
+    if name:
+        payload["name"] = name
+
     try:
         get_admin_db().table("users").upsert(payload, on_conflict="id").execute()
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Failed to store Google tokens") from exc
 
-    name = user.get("name", "")
     if name:
         try:
             from supermemory_client import add_user_memory, make_memory_custom_id
