@@ -179,6 +179,116 @@ CREATE INDEX IF NOT EXISTS proactive_jobs_undelivered_idx
   ON proactive_jobs (user_id, delivered)
   WHERE delivered = false AND status = 'done';
 
+-- At most one running job per (user, job_type). This is the cross-instance guard that
+-- claim_proactive_job() relies on; the old in-process asyncio.Lock did not survive fan-out.
+-- The table ran under the old non-atomic claim, so it may already hold duplicate/orphaned
+-- 'running' rows that would make CREATE UNIQUE INDEX abort. Retire them FIRST — but only on the
+-- very first migration (before the index exists), so re-running this schema file never kills a
+-- genuinely in-flight job.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE indexname = 'proactive_jobs_one_running_idx'
+  ) THEN
+    UPDATE proactive_jobs
+    SET status = 'failed', finished_at = now(), error = 'migration cleanup'
+    WHERE status = 'running';
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS proactive_jobs_one_running_idx
+  ON proactive_jobs (user_id, job_type) WHERE status = 'running';
+
+-- Atomic proactive-job claim. Replaces runner.py's non-atomic SELECT-then-INSERT so two racing
+-- invocations (cron retry, overlapping /trigger, fan-out re-fire) can never both run the same
+-- (user, job). Runs in one transaction; returns the action the caller should take.
+--   claimed       → fresh run, execute it (job_id is the new row)
+--   retry         → reclaimed a stale running row, execute it (job_id reused)
+--   skip_done     → already done/failed within the dedupe window
+--   skip_running  → another invocation owns the running slot (lost the race, or genuinely live)
+--   skip_terminal → retries exhausted; running slot freed (status set to 'failed')
+-- Lease must be > the caller's per-job timeout so a legitimately in-flight job is never reclaimed.
+-- retry_count is intentionally NOT advanced here — it stays owned by the failure/timeout handlers.
+CREATE OR REPLACE FUNCTION claim_proactive_job(
+  p_user_id       text,
+  p_job_type      text,
+  p_context_key   text,
+  p_window_start  timestamptz,
+  p_lease_seconds int DEFAULT 300,
+  p_max_retries   int DEFAULT 3
+)
+RETURNS TABLE (job_id uuid, action text, retry_count int)
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_run     proactive_jobs%ROWTYPE;
+  v_done    proactive_jobs%ROWTYPE;
+  v_lease   timestamptz := now() - make_interval(secs => p_lease_seconds);
+  v_new_id  uuid;
+BEGIN
+  -- 1. Reclaim / concurrency: a running row holds the unique slot (may predate the window).
+  SELECT * INTO v_run
+  FROM proactive_jobs
+  WHERE user_id = p_user_id AND job_type = p_job_type AND status = 'running'
+  LIMIT 1;
+
+  IF FOUND THEN
+    IF v_run.started_at < v_lease THEN
+      -- stale
+      IF v_run.retry_count < p_max_retries THEN
+        -- CAS on started_at (the column we read AND write) so exactly one racer wins.
+        UPDATE proactive_jobs
+        SET started_at = now()
+        WHERE id = v_run.id AND status = 'running' AND started_at = v_run.started_at
+        RETURNING id INTO v_new_id;
+        IF v_new_id IS NOT NULL THEN
+          RETURN QUERY SELECT v_run.id, 'retry'::text, v_run.retry_count;
+        ELSE
+          RETURN QUERY SELECT v_run.id, 'skip_running'::text, v_run.retry_count;
+        END IF;
+      ELSE
+        -- retries exhausted: free the slot so the job isn't wedged forever.
+        UPDATE proactive_jobs
+        SET status = 'failed', finished_at = now()
+        WHERE id = v_run.id AND status = 'running';
+        RETURN QUERY SELECT v_run.id, 'skip_terminal'::text, v_run.retry_count;
+      END IF;
+    ELSE
+      -- fresh: genuinely in flight in another invocation.
+      RETURN QUERY SELECT v_run.id, 'skip_running'::text, v_run.retry_count;
+    END IF;
+    RETURN;
+  END IF;
+
+  -- 2. Time-dedup (only when a window is supplied; windowless jobs skip this).
+  IF p_window_start IS NOT NULL THEN
+    SELECT * INTO v_done
+    FROM proactive_jobs
+    WHERE user_id = p_user_id AND job_type = p_job_type
+      AND started_at >= p_window_start
+      AND status IN ('done', 'failed')
+    ORDER BY started_at DESC
+    LIMIT 1;
+    IF FOUND THEN
+      RETURN QUERY SELECT v_done.id, 'skip_done'::text, v_done.retry_count;
+      RETURN;
+    END IF;
+  END IF;
+
+  -- 3. Claim fresh. The partial unique index makes a concurrent double-insert a no-op.
+  INSERT INTO proactive_jobs (user_id, job_type, context_key, status, retry_count)
+  VALUES (p_user_id, p_job_type, p_context_key, 'running', 0)
+  ON CONFLICT (user_id, job_type) WHERE status = 'running' DO NOTHING
+  RETURNING id INTO v_new_id;
+
+  IF v_new_id IS NOT NULL THEN
+    RETURN QUERY SELECT v_new_id, 'claimed'::text, 0;
+  ELSE
+    -- a concurrent claim inserted a running row between our SELECT and INSERT.
+    RETURN QUERY SELECT NULL::uuid, 'skip_running'::text, 0;
+  END IF;
+END;
+$$;
+
 -- ── Follow-up thread tracking ─────────────────────────────────────────────────
 -- Tracks "I'll get back to them" commitments detected in email or voice.
 CREATE TABLE IF NOT EXISTS follow_up_threads (

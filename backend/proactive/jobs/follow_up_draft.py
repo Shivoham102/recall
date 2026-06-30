@@ -170,14 +170,23 @@ async def _haiku_draft(
     return resp.content[0].text.strip()
 
 
+# Drafting is uncapped but time-boxed: stop before JOB_TIMEOUT_SECONDS (270) so the loop ends
+# cleanly between drafts instead of being hard-cancelled mid-write. Candidates are processed in
+# slices so a large backlog still produces drafts (meta+judge per slice, not all up front).
+DRAFT_BUDGET_SECONDS = 240
+DRAFT_SLICE = 15
+
+
 async def _run_draft_phase(
     user_id: str,
     db,
     svc,
     now: datetime,
     memory_context: str,
+    deadline: float,
 ) -> list[dict]:
-    """Draft follow-up emails for qualifying open threads (called only from follow_up_draft.run())."""
+    """Draft follow-up emails for qualifying open threads (called only from follow_up_draft.run()).
+    `deadline` is a time.monotonic() cutoff measured from run() entry; drafting stops at it."""
     import context  # ContextVar module — context.py:7  # noqa: PLC0415
     from tools.google_services import (  # noqa: PLC0415
         calendar_events_window,
@@ -239,8 +248,8 @@ async def _run_draft_phase(
         _, addr = _eu.parseaddr(raw_cp)
         cp_key = (addr or raw_cp).lower()
         by_counterparty[cp_key] = t
-    clean_candidates = list(by_counterparty.values())[:5]  # max 5 drafts per run
-    print(f"[follow_up_draft] {len(clean_candidates)} candidates after counterparty dedup (capped at 5)")
+    clean_candidates = list(by_counterparty.values())  # uncapped — bounded by the soft deadline below
+    print(f"[follow_up_draft] {len(clean_candidates)} candidates after counterparty dedup")
 
     async def _draft_one(thread: dict, meta: dict) -> dict | None:
         try:
@@ -329,42 +338,52 @@ async def _run_draft_phase(
             print(f"[follow_up_draft] _draft_one error {thread['thread_id'][:8]}: {exc}")
             return None
 
-    # Fetch thread meta (full bodies + threading headers) for all candidates up front, then
-    # run one calendar-aware judge before writing any draft. This is the final, freshest gate:
-    # threads whose conversation has concluded or whose meeting/interview is now on the calendar
-    # are resolved and skipped instead of drafted.
-    metas = []
-    for t in clean_candidates:
-        metas.append(await asyncio.to_thread(_get_thread_draft_meta, svc, t["thread_id"]))
-    t0 = _t("draft_meta_fetch", t0)
-
+    # Calendar is fetched once and reused as the judge gate across every slice. Then process
+    # candidates in deadline-bounded slices: per slice we fetch thread meta (in parallel), run one
+    # calendar-aware judge, resolve the threads it rejects, and draft the survivors. Checking the
+    # budget between slices and before each draft means a large backlog still produces drafts
+    # (instead of burning the whole budget on an up-front meta/judge pass over everything) and the
+    # loop always stops cleanly between drafts — each of which already committed via was_drafted.
     calendar_events = await calendar_events_window()
-    judge_input = [
-        {
-            "trigger_type": t.get("trigger_type") or "sent_commitment",
-            "commitment_text": t.get("commitment_text", ""),
-            "context": m.get("context_summary") or t.get("commitment_text", ""),
-            "counterparty": t.get("counterparty", ""),
-            "subject": m.get("subject", ""),
-        }
-        for t, m in zip(clean_candidates, metas)
-    ]
-    keep_flags = await judge_followups(judge_input, calendar_events)
+    t0 = _t("calendar_fetch", t0)
 
-    survivors = []
-    for t, m, keep in zip(clean_candidates, metas, keep_flags):
-        if keep:
-            survivors.append((t, m))
-        else:
-            db.table("follow_up_threads").update({"status": "resolved"}).eq("id", t["id"]).execute()
-            print(f"[follow_up_draft] judged no follow-up needed, resolved {t['thread_id'][:8]}")
-    print(f"[follow_up_draft] {len(survivors)}/{len(clean_candidates)} survive judge ({len(calendar_events)} cal events)")
+    task_cards: list[dict] = []
+    for slice_start in range(0, len(clean_candidates), DRAFT_SLICE):
+        if time.monotonic() >= deadline:
+            print(f"[follow_up_draft] soft deadline before slice {slice_start}: "
+                  f"drafted {len(task_cards)}/{len(clean_candidates)}, rest next run")
+            break
+        chunk = clean_candidates[slice_start:slice_start + DRAFT_SLICE]
+        metas = list(await asyncio.gather(*[
+            asyncio.to_thread(_get_thread_draft_meta, svc, t["thread_id"]) for t in chunk
+        ]))
 
-    task_cards = []
-    for t, m in survivors:
-        r = await _draft_one(t, m)
-        if isinstance(r, dict):
-            task_cards.append(r)
+        judge_input = [
+            {
+                "trigger_type": t.get("trigger_type") or "sent_commitment",
+                "commitment_text": t.get("commitment_text", ""),
+                "context": m.get("context_summary") or t.get("commitment_text", ""),
+                "counterparty": t.get("counterparty", ""),
+                "subject": m.get("subject", ""),
+            }
+            for t, m in zip(chunk, metas)
+        ]
+        keep_flags = await judge_followups(judge_input, calendar_events)
+
+        for t, m, keep in zip(chunk, metas, keep_flags):
+            if not keep:
+                db.table("follow_up_threads").update({"status": "resolved"}).eq("id", t["id"]).execute()
+                print(f"[follow_up_draft] judged no follow-up needed, resolved {t['thread_id'][:8]}")
+                continue
+            if time.monotonic() >= deadline:
+                print(f"[follow_up_draft] soft deadline mid-slice: "
+                      f"drafted {len(task_cards)}/{len(clean_candidates)}, rest next run")
+                _t(f"all_drafts ({len(task_cards)}/{len(candidates)} succeeded)", t0)
+                return task_cards
+            r = await _draft_one(t, m)
+            if isinstance(r, dict):
+                task_cards.append(r)
+
     _t(f"all_drafts ({len(task_cards)}/{len(candidates)} succeeded)", t0)
     return task_cards
 
@@ -453,6 +472,8 @@ def _check_draft_validity(user_id: str, db, svc) -> None:
 async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC") -> ProactiveResult:
     db = get_admin_db()
     now = datetime.now(timezone.utc)
+    # Budget measured from here so it covers the up-front gmail/style/backfill work too.
+    deadline = time.monotonic() + DRAFT_BUDGET_SECONDS
 
     svc, memory_context = await asyncio.gather(
         asyncio.to_thread(_get_gmail_service),
@@ -463,7 +484,7 @@ async def run(user_id: str, context_key: str | None = None, user_tz: str = "UTC"
         asyncio.to_thread(_backfill_null_timestamps, user_id, db, svc),
         asyncio.to_thread(_check_draft_validity, user_id, db, svc),
     )
-    task_cards = await _run_draft_phase(user_id, db, svc, now, memory_context)
+    task_cards = await _run_draft_phase(user_id, db, svc, now, memory_context, deadline)
 
     if not task_cards:
         return ProactiveResult(

@@ -36,6 +36,11 @@ _DEDUPE_WINDOWS: dict[str, timedelta] = {
 
 MAX_RETRIES = 3
 
+# Reclaim lease for a stuck 'running' row (passed to claim_proactive_job). MUST stay strictly
+# greater than the caller's per-job timeout (cron.py JOB_TIMEOUT_SECONDS, ~270s) so a job that is
+# legitimately in flight is never reclaimed mid-run.
+JOB_LEASE_SECONDS = 300
+
 # follow_up_scan and follow_up_draft both mutate the same follow_up_threads rows / Gmail
 # drafts for a user. scan keys its lock by nothing (no single thread), draft keys by thread id,
 # so a per-(job_type, context_key) lock never serializes them and they can race on draft_gmail_id.
@@ -83,10 +88,9 @@ async def run_job(
         db = get_admin_db()
         now = datetime.now(timezone.utc)
 
-        # ── 1. Check for existing row ─────────────────────────────────────────
-        existing: dict | None = None
-
+        # ── 1. Compute the dedupe window start (None = windowless job → no time-dedup) ──
         window = _DEDUPE_WINDOWS.get(job_type)
+        window_start: str | None = None
         if window is not None:
             if job_type in _CALENDAR_DAY_JOBS:
                 try:
@@ -98,46 +102,25 @@ async def run_job(
                 window_start = _local_midnight.astimezone(timezone.utc).isoformat()
             else:
                 window_start = (now - window).isoformat()
-            res = (
-                db.table("proactive_jobs")
-                .select("*")
-                .eq("user_id", user_id)
-                .eq("job_type", job_type)
-                .gte("started_at", window_start)
-                .order("started_at", desc=True)
-                .limit(1)
-                .execute()
-            )
-        else:
-            res = None
 
-        if res and res.data:
-            existing = res.data[0]
-
-        # ── 2. Decide: skip, retry, or insert ────────────────────────────────
-        job_id: str
-        if existing:
-            if existing["status"] == "done":
-                return None  # already succeeded in window
-            if existing["status"] == "failed":
-                return None  # terminal failure, no more retries
-            # status == "running": retry if retries remain
-            if existing["retry_count"] >= MAX_RETRIES:
-                return None
-            job_id = existing["id"]
-        else:
-            insert_res = (
-                db.table("proactive_jobs")
-                .insert({
-                    "user_id": user_id,
-                    "job_type": job_type,
-                    "context_key": context_key,
-                    "status": "running",
-                    "retry_count": 0,
-                })
-                .execute()
-            )
-            job_id = insert_res.data[0]["id"]
+        # ── 2. Atomic claim (cross-instance) ──────────────────────────────────
+        # One transaction decides skip / retry / claim, so two racing invocations (cron retry,
+        # overlapping /trigger, fan-out re-fire) can never both run the same (user, job). The
+        # in-process lock above is only a same-instance fast-path; this is the real guarantee.
+        claim = db.rpc("claim_proactive_job", {
+            "p_user_id": user_id,
+            "p_job_type": job_type,
+            "p_context_key": context_key,
+            "p_window_start": window_start,
+            "p_lease_seconds": JOB_LEASE_SECONDS,
+            "p_max_retries": MAX_RETRIES,
+        }).execute()
+        claimed = (claim.data or [None])[0]
+        action = claimed.get("action") if claimed else None
+        if action not in ("claimed", "retry"):
+            return None  # skip_done / skip_running / skip_terminal
+        job_id = claimed["job_id"]
+        claimed_retries = claimed.get("retry_count") or 0
 
         # ── 3. Set ContextVars so tools can find the user ─────────────────────
         ctx_tok = context.current_user_id.set(user_id)
@@ -167,8 +150,27 @@ async def run_job(
 
             return result
 
+        except asyncio.CancelledError:
+            # Hard timeout (the caller's asyncio.wait_for) cancels via CancelledError, a
+            # BaseException that `except Exception` below does NOT catch. Mirror the failure
+            # handler: advance the retry budget (so repeated timeouts converge to terminal) and,
+            # if exhausted, mark failed to FREE the unique running-slot. Non-terminal timeouts
+            # leave the row 'running' for the lease-based reclaim to pick up next dispatch.
+            # Sync db…execute() writes only — no await that could re-trigger cancellation.
+            new_retries = claimed_retries + 1
+            update: dict = {"retry_count": new_retries, "error": "timeout"}
+            if new_retries >= MAX_RETRIES:
+                update["status"] = "failed"
+                update["finished_at"] = datetime.now(timezone.utc).isoformat()
+            db.table("proactive_jobs").update(update).eq("id", job_id).execute()
+            logger.warning(
+                "proactive job %s timed out for user %s (attempt %d/%d)",
+                job_type, user_id, new_retries, MAX_RETRIES,
+            )
+            raise
+
         except Exception as exc:
-            current_retries = (existing["retry_count"] if existing else 0)
+            current_retries = claimed_retries
             new_retries = current_retries + 1
             update: dict = {
                 "retry_count": new_retries,

@@ -2,16 +2,67 @@ import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+import httpx
 from fastapi import APIRouter, Header, HTTPException, Request
+from pydantic import BaseModel
 from tools.google_services import refresh_style_profiles_weekly
 from db import get_admin_db
 from proactive.runner import run_job
 
 router = APIRouter()
 
-# Per-job ceiling in the dispatch loop. Slightly above the headless loop's own 240s budget
-# so a normally-slow job still completes, but a truly stuck one is cut loose.
-JOB_TIMEOUT_SECONDS = 250
+# Per-job ceiling inside a single /jobs/run-one invocation (the job now owns its own function,
+# so this is well under the 300s function cap). MUST stay below the runner's reclaim lease (300s)
+# so a job killed at this timeout is not also reclaimed as "stale" mid-run.
+JOB_TIMEOUT_SECONDS = 270
+
+# How long the dispatcher waits on each fanned-out child before giving up on its HTTP call. The
+# child is a separate invocation with its own JOB_TIMEOUT_SECONDS, so this is just a backstop;
+# a child that exceeds it may still finish on its own (dispatch counts are advisory).
+CHILD_TIMEOUT_SECONDS = 285
+
+
+def _self_base_url() -> str:
+    """Base URL to call our own deployment for fan-out. Vercel sets VERCEL_URL (host only)."""
+    vercel_url = os.environ.get("VERCEL_URL", "").strip()
+    if vercel_url:
+        return f"https://{vercel_url}"
+    port = os.environ.get("BACKEND_PORT", "").strip() or "8000"
+    return f"http://127.0.0.1:{port}"
+
+
+async def _fan_out(jobs: list[tuple[str, str, str]]) -> list[str]:
+    """POST one /jobs/run-one per (user_id, job_type, tz) so each runs in its own invocation,
+    concurrently. Returns one outcome string per job (ran | skipped | failed)."""
+    if not jobs:
+        return []
+    secret = os.environ.get("CRON_SECRET", "").strip()
+    base = _self_base_url()
+    headers = {"x-cron-secret": secret}
+    bypass = os.environ.get("VERCEL_AUTOMATION_BYPASS_SECRET", "").strip()
+    if bypass:  # only needed if Vercel Deployment Protection is enabled
+        headers["x-vercel-protection-bypass"] = bypass
+
+    async def _one(client: httpx.AsyncClient, user_id: str, job_type: str, tz: str) -> str:
+        try:
+            r = await asyncio.wait_for(
+                client.post(
+                    f"{base}/jobs/run-one",
+                    json={"user_id": user_id, "job_type": job_type, "tz": tz},
+                    headers=headers,
+                ),
+                timeout=CHILD_TIMEOUT_SECONDS,
+            )
+            if r.status_code == 200:
+                return r.json().get("outcome", "ran")
+            print(f"[dispatch] run-one {job_type} for {user_id}: HTTP {r.status_code}")
+            return "failed"
+        except Exception as exc:
+            print(f"[dispatch] run-one {job_type} for {user_id} errored: {exc}")
+            return "failed"
+
+    async with httpx.AsyncClient(timeout=CHILD_TIMEOUT_SECONDS + 10) as client:
+        return list(await asyncio.gather(*[_one(client, u, j, t) for (u, j, t) in jobs]))
 
 
 def _is_authorized(request: Request, authorization: str | None, x_cron_secret: str | None) -> bool:
@@ -162,6 +213,37 @@ def _due_jobs(local_hour: int, brief_hour: int, brief_enabled: bool) -> list[str
     return due
 
 
+class RunOneRequest(BaseModel):
+    user_id: str
+    job_type: str
+    tz: str = "UTC"
+
+
+@router.post("/jobs/run-one")
+async def run_one(
+    body: RunOneRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_cron_secret: str | None = Header(default=None),
+):
+    """Run exactly ONE proactive job for ONE user. Each call is its own function invocation, so
+    the job owns a full time budget. Fanned out by /jobs/dispatch; secret-gated like every job."""
+    if not _is_authorized(request, authorization, x_cron_secret):
+        raise HTTPException(status_code=401, detail="Unauthorized cron request")
+    try:
+        result = await asyncio.wait_for(
+            run_job(body.user_id, body.job_type, user_tz=body.tz),
+            timeout=JOB_TIMEOUT_SECONDS,
+        )
+        return {"ok": True, "outcome": "ran" if result is not None else "skipped"}
+    except asyncio.TimeoutError:
+        print(f"[run-one] {body.job_type} timed out for user {body.user_id}")
+        return {"ok": False, "outcome": "timeout"}
+    except Exception as exc:
+        print(f"[run-one] {body.job_type} failed for user {body.user_id}: {exc}")
+        return {"ok": False, "outcome": "error"}
+
+
 @router.get("/jobs/dispatch")
 async def dispatch_jobs(
     request: Request,
@@ -169,8 +251,9 @@ async def dispatch_jobs(
     authorization: str | None = Header(default=None),
     x_cron_secret: str | None = Header(default=None),
 ):
-    """Hourly dispatcher (one cron per UTC hour, `?h=N`). For each active user,
-    run whichever pipeline jobs are due at the user's current local hour."""
+    """Hourly dispatcher (one cron per UTC hour, `?h=N`). Computes which pipeline jobs are due at
+    each active user's local hour, then FANS OUT one /jobs/run-one invocation per (user, job) so
+    they run in parallel, each with its own time budget. The dispatcher itself does no job work."""
     if not _is_authorized(request, authorization, x_cron_secret):
         raise HTTPException(status_code=401, detail="Unauthorized cron request")
 
@@ -194,7 +277,8 @@ async def dispatch_jobs(
     if reauth_count:
         print(f"[dispatch] {reauth_count} users need Google reconnect")
 
-    ran, skipped, failed, dispatched = 0, 0, 0, 0
+    # Compute the due (user, job, tz) tuples — same local-hour routing as before.
+    jobs: list[tuple[str, str, str]] = []
     for row in users:
         tz_name = row.get("timezone") or "UTC"
         try:
@@ -206,29 +290,17 @@ async def dispatch_jobs(
         brief_hour = 7 if brief_hour is None else brief_hour
         brief_enabled = bool(row.get("proactive_morning_brief", True))
         for job_type in _due_jobs(local_hour, brief_hour, brief_enabled):
-            dispatched += 1
-            try:
-                # Cap each job so one stuck user (e.g. a hung external call not covered by
-                # the headless loop's own 240s budget) can't consume the whole cron run and
-                # starve every user after them in the loop.
-                result = await asyncio.wait_for(
-                    run_job(row["id"], job_type, user_tz=tz_name), timeout=JOB_TIMEOUT_SECONDS
-                )
-                if result is None:
-                    skipped += 1
-                else:
-                    ran += 1
-            except asyncio.TimeoutError:
-                failed += 1
-                print(f"[dispatch] {job_type} timed out for user {row['id']}")
-            except Exception as exc:
-                failed += 1
-                print(f"[dispatch] {job_type} failed for user {row['id']}: {exc}")
+            jobs.append((row["id"], job_type, tz_name))
+
+    outcomes = await _fan_out(jobs)
+    ran = outcomes.count("ran")
+    skipped = outcomes.count("skipped")
+    failed = len(outcomes) - ran - skipped  # timeout/error/HTTP failures — advisory only
 
     return {
         "ok": True,
         "hour": hour,
-        "dispatched": dispatched,
+        "dispatched": len(jobs),
         "ran": ran,
         "skipped": skipped,
         "failed": failed,
