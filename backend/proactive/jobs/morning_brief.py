@@ -30,7 +30,9 @@ Then surface selectively:
 - surface_calendar: all events today (every one you find)
 - surface_cards: ONLY real person-to-person emails. Skip ALL of these: newsletters, \
 promotions, marketing, job boards, automated alerts, shopping, subscriptions, \
-"no-reply", discount offers, product updates. If every email is promotional, \
+"no-reply", discount offers, product updates, connection requests, social \
+invitations (e.g. LinkedIn). Any email tagged [bulk] or from a bulk-sender domain \
+is not person-to-person, so skip it. If every email is promotional, \
 call surface_cards with indices=[] (empty — do not surface junk).
 - surface_tasks: only tasks that are overdue or due today
 

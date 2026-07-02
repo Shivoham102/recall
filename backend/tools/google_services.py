@@ -41,6 +41,10 @@ _NOISE_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+# Gmail auto-categories that mean "not a real person-to-person email".
+# UPDATES is intentionally excluded (receipts/shipping/security alerts can matter).
+_NOISE_CATEGORIES = {"CATEGORY_SOCIAL", "CATEGORY_PROMOTIONS", "CATEGORY_FORUMS"}
+
 
 def _get_creds():
     user_id = context.current_user_id.get("")
@@ -438,7 +442,7 @@ async def gmail_get_updates(inp: dict) -> dict:
                     userId="me",
                     id=msg["id"],
                     format="metadata",
-                    metadataHeaders=["From", "Subject", "Date"],
+                    metadataHeaders=["From", "Subject", "Date", "List-Unsubscribe"],
                 ),
                 request_id=str(i),
             )
@@ -461,8 +465,16 @@ async def gmail_get_updates(inp: dict) -> dict:
             if _NOISE_PATTERNS.search(from_raw):
                 continue
 
+            # Skip Gmail's bulk categories (social/promotions/forums) — LinkedIn
+            # invites, marketing blasts, etc. Never a real person-to-person email.
+            if _NOISE_CATEGORIES.intersection(labels):
+                continue
+
             display_name, addr = email.utils.parseaddr(from_raw)
             sender = display_name or addr
+            domain = addr.split("@", 1)[1] if "@" in addr else ""
+            # Header-name casing isn't guaranteed by Gmail — match case-insensitively.
+            has_unsub = any(k.lower() == "list-unsubscribe" for k in headers)
 
             # Parse received time
             try:
@@ -484,6 +496,8 @@ async def gmail_get_updates(inp: dict) -> dict:
                 "received": time_str,
                 "unread": is_unread,
                 "important": is_important,
+                "domain": domain,
+                "bulk": has_unsub,
                 "thread_id": thread_id,
                 "link": f"https://mail.google.com/mail/u/0/#all/{thread_id}",
             })
@@ -508,7 +522,10 @@ async def gmail_get_updates(inp: dict) -> dict:
 
     # Include indices so the agent can reference specific emails when calling surface_cards
     lines = [
-        f"[{idx}] {e['sender']}: {e['subject']!r} ({e['received']})"
+        f"[{idx}] {e['sender']}"
+        + (f" <{e['domain']}>" if e.get("domain") else "")
+        + (" [bulk]" if e.get("bulk") else "")
+        + f": {e['subject']!r} ({e['received']})"
         + (" [unread]" if e["unread"] else "")
         + (f" — {e['snippet']}" if e["snippet"] else "")
         for idx, e in enumerate(emails)
