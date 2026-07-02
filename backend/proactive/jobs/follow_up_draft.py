@@ -149,23 +149,36 @@ async def _haiku_draft(
     sign_off = f"{closing},\n{display_name}" if display_name else f"{closing},"
     client = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     author = display_name or "the user"
-    cp_first = counterparty.split()[0] if counterparty else counterparty
+    # A bare email address (anonymized craigslist / relay senders carry no display name) must
+    # NOT be treated as a name, or the model is told to greet "Hi relay@craigslist.org," and
+    # leaks its confusion ("I couldn't find a name...") into the draft body. Greet by name only
+    # when a real display name is present, and let the model pick the salutation from it so a
+    # label like "Sales Team" is handled sensibly instead of becoming "Hi Sales,".
+    has_name = bool(counterparty) and "@" not in counterparty
+    open_line = (
+        f"open with '{greeting}' and the recipient's name, using their first name if "
+        f"'{counterparty}' is a person's name (e.g. '{greeting} <first name>,')"
+        if has_name
+        else f"open with '{greeting},' with no name (no recipient name is available, so do "
+             f"not address them by name)"
+    )
     resp = await client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=300,
         messages=[{"role": "user", "content":
             f"You are ghostwriting an email for {author}.\n"
-            f"In the thread context below, messages labeled USER are written BY {author} — "
-            f"they are the sender, not the recipient.\n"
+            f"In the thread context below, messages labeled USER are written BY {author}. "
+            f"They are the sender, not the recipient.\n"
             f"Background on {author}: {memory_context or 'none'}\n"
             f"Write a follow-up email body to {counterparty}.\n"
             f"Thread context: {context_summary}\n"
             f"Original commitment/request: {commitment}\n"
-            f"Style: {formality} tone, ~{avg_words} words/sentence, "
-            f"open with '{greeting} {cp_first},' (use the recipient's first name)\n"
+            f"Style: {formality} tone, ~{avg_words} words/sentence, {open_line}\n"
             f"Rules: 2-4 sentences, no em dashes, do not identify as AI, "
             f"reference the specific commitment or ask from the thread. "
-            f"End with exactly: {sign_off}"}],
+            f"Write only the email itself. Never mention missing information (a name, date, "
+            f"link, etc.) and never ask the reader or anyone else to supply it; if something "
+            f"is unknown, write around it. End with exactly: {sign_off}"}],
     )
     return resp.content[0].text.strip()
 
