@@ -430,6 +430,16 @@ ALTER TABLE agent_chats
 CREATE UNIQUE INDEX IF NOT EXISTS agent_chats_proactive_inbox_per_user
   ON agent_chats (user_id) WHERE is_proactive_inbox = true;
 
+-- ── Agent chats: hotkey (speak-mode) chat flag ───────────────────────────────
+-- The always-on-top orb window streams every hotkey conversation into this one
+-- dedicated chat so users can watch tool calls / drafts live in the main app.
+ALTER TABLE agent_chats
+  ADD COLUMN IF NOT EXISTS is_hotkey boolean NOT NULL DEFAULT false;
+
+-- Ensures at most one hotkey chat per user.
+CREATE UNIQUE INDEX IF NOT EXISTS agent_chats_hotkey_per_user
+  ON agent_chats (user_id) WHERE is_hotkey = true;
+
 -- ── Migration helpers (run once after SSO is set up) ─────────────────────────
 -- Add user_id to existing tables if upgrading from schema without it:
 --   ALTER TABLE recall_items ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id);

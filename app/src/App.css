@@ -819,6 +819,14 @@ body { background: transparent; overflow: hidden; }
   border-color: color-mix(in srgb, var(--lavender) 70%, transparent);
   background: color-mix(in srgb, var(--lavender) 18%, transparent);
 }
+.agent-chat-row--hotkey {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.agent-chat-row--hotkey.agent-chat-row--active {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
 
 .agent-chat-row__unread {
   display: inline-block;

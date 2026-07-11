@@ -10,6 +10,7 @@ import { Orb } from "../Orb/OrbCanvas";
 import { TabLoading } from "../TabLoading";
 import { useAgentChats } from "../../context/AgentChatsContext";
 import { AgentStep, CalendarCard, EmailCard, TaskCard } from "../../types/agentTurn";
+import { CapturePair, reduceCapturePair } from "../../utils/captureTurnReducer";
 import { scheduleReminder } from "../../services/reminderScheduler";
 import { applyItemUpdatedTimer } from "../../services/itemUpdatedTimer";
 import { AgentChatSidebar } from "./AgentChatSidebar";
@@ -312,7 +313,8 @@ export function AgentTab() {
   }, [activeChatId, replaceChatTurns]);
 
   const handleCapture = useCallback(async (blob: Blob) => {
-    if (!activeChat || !activeSessionId) return;
+    // The Hotkey chat is a view-only live mirror; the orb window is its sole writer.
+    if (!activeChat || !activeSessionId || activeChat.is_hotkey) return;
     const chatId = activeChat.id;
     const userTurnId = crypto.randomUUID();
     const assistantTurnId = crypto.randomUUID();
@@ -325,11 +327,17 @@ export function AgentTab() {
     currentStreamAbortRef.current?.abort();
     currentStreamAbortRef.current = null;
 
-    replaceChatTurns(chatId, (prev) => [
-      ...prev,
-      { id: userTurnId, role: "user", text: "", pending: true },
-      { id: assistantTurnId, role: "assistant", text: "", steps: [], pending: true },
-    ]);
+    let pair: CapturePair = {
+      user: { id: userTurnId, role: "user", text: "", pending: true },
+      assistant: { id: assistantTurnId, role: "assistant", text: "", steps: [], pending: true },
+    };
+    replaceChatTurns(chatId, (prev) => [...prev, pair.user, pair.assistant]);
+    // Push the current pair into the chat state (replace the two turns by id).
+    const applyPair = () => {
+      replaceChatTurns(chatId, (prev) =>
+        prev.map((t) => (t.id === userTurnId ? pair.user : t.id === assistantTurnId ? pair.assistant : t)),
+      );
+    };
 
     const abortCtrl = new AbortController();
     currentStreamAbortRef.current = abortCtrl;
@@ -339,7 +347,6 @@ export function AgentTab() {
     try {
       let transcript = "";
       let spokenText = "";
-      let streamingText = "";
       let intentType: string | undefined;
       let awaitingClarification = false;
       let itemId: string | null = null;
@@ -353,42 +360,11 @@ export function AgentTab() {
       for await (const event of captureStream(blob, activeSessionId, abortCtrl.signal)) {
         if (event.type === "transcript") {
           transcript = event.text;
-          patchTurnInChat(chatId, userTurnId, { text: transcript, pending: false });
-        } else if (event.type === "token") {
-          streamingText += event.text;
-          patchTurnInChat(chatId, assistantTurnId, { text: streamingText });
-        } else if (event.type === "tool_call") {
-          const call = { name: event.name, summary: "", pending: true };
-          replaceChatTurns(chatId, (prev) =>
-            prev.map((turn) =>
-              turn.id === assistantTurnId
-                ? { ...turn, steps: [...(turn.steps ?? []), call] }
-                : turn,
-            ),
-          );
-        } else if (event.type === "tool_result") {
-          replaceChatTurns(chatId, (prev) =>
-            prev.map((turn) => {
-              if (turn.id !== assistantTurnId) return turn;
-              const steps = [...(turn.steps ?? [])];
-              const idx = [...steps].reverse().findIndex((s) => s.name === event.name && s.pending);
-              if (idx !== -1) {
-                const realIdx = steps.length - 1 - idx;
-                steps[realIdx] = { ...steps[realIdx], summary: event.summary, pending: false };
-              }
-              const next = { ...turn, steps };
-              if (event.name === "surface_cards" && Array.isArray(event.data?.items_data)) {
-                next.emailCards = event.data.items_data as EmailCard[];
-              }
-              if (event.name === "surface_calendar" && Array.isArray(event.data?.items_data)) {
-                next.calendarCards = event.data.items_data as CalendarCard[];
-              }
-              if (event.name === "surface_tasks" && Array.isArray(event.data?.items_data)) {
-                next.taskCards = event.data.items_data as TaskCard[];
-              }
-              return next;
-            }),
-          );
+          pair = reduceCapturePair(pair, event);
+          applyPair();
+        } else if (event.type === "token" || event.type === "tool_call" || event.type === "tool_result") {
+          pair = reduceCapturePair(pair, event);
+          applyPair();
         } else if (event.type === "ack_audio") {
           playAudio(event.audio_base64);
         } else if (event.type === "ack_audio_chunk") {
@@ -403,21 +379,21 @@ export function AgentTab() {
           currentAckPlayerRef.current = null;
         } else if (event.type === "spoken") {
           spokenText = event.text;
-          streamingText = "";
-          patchTurnInChat(chatId, assistantTurnId, { text: spokenText });
+          pair = reduceCapturePair(pair, event);
+          applyPair();
         } else if (event.type === "metadata") {
           intentType = event.intent_type;
           awaitingClarification = event.awaiting_clarification ?? false;
-          patchTurnInChat(chatId, userTurnId, { intentType });
+          pair = reduceCapturePair(pair, event);
+          applyPair();
         } else if (event.type === "stored") {
           itemId = event.item_id;
           dueAt = event.due_at;
           // A stored item with a due time is a reminder; classify_intent tags these as
           // "task", so relabel the chat badge to match what was actually created.
-          if (event.due_at) {
-            intentType = "reminder";
-            patchTurnInChat(chatId, userTurnId, { intentType: "reminder" });
-          }
+          if (event.due_at) intentType = "reminder";
+          pair = reduceCapturePair(pair, event);
+          applyPair();
         } else if (event.type === "item_updated") {
           applyItemUpdatedTimer(event.item_id, event.due_at, "AgentTab");
         } else if (event.type === "audio") {
@@ -449,10 +425,12 @@ export function AgentTab() {
         } else if (event.type === "audio_done") {
           finalPlayer?.done();
         } else if (event.type === "error") {
-          patchTurnInChat(chatId, assistantTurnId, { text: event.message, pending: false });
+          pair = { ...pair, assistant: { ...pair.assistant, text: event.message, pending: false } };
+          applyPair();
         } else if (event.type === "done") {
           doneHandled = true;
-          patchTurnInChat(chatId, assistantTurnId, { pending: false });
+          pair = { ...pair, assistant: { ...pair.assistant, pending: false } };
+          applyPair();
           if (!awaitingClarification) {
             if (dueAt && itemId) scheduleReminder(itemId, dueAt);
             await emit("recall:new-turn", {
@@ -480,7 +458,8 @@ export function AgentTab() {
     } catch (err) {
       if ((err as DOMException).name === "AbortError") return;
       console.error("[AgentTab] capture failed:", err);
-      patchTurnInChat(chatId, assistantTurnId, { text: "Something went wrong.", pending: false });
+      pair = { ...pair, assistant: { ...pair.assistant, text: "Something went wrong.", pending: false } };
+      applyPair();
       setOrbError(true);
       setTimeout(() => { setOrbError(false); recorder.reset(); }, 2000);
     } finally {
@@ -488,7 +467,7 @@ export function AgentTab() {
       currentAssistantTurnIdRef.current = null;
       if (!doneHandled && (recorder.state === "speaking" || recorder.state === "processing")) recorder.reset();
     }
-  }, [activeChat, activeSessionId, patchTurnInChat, recorder, replaceChatTurns, refreshChatTitleFromServer]);
+  }, [activeChat, activeSessionId, recorder, replaceChatTurns, refreshChatTitleFromServer]);
 
   const handleStop = useCallback(async () => {
     let blob: Blob;
@@ -504,6 +483,8 @@ export function AgentTab() {
 
   const lastToggleMs = useRef(0);
   const handleToggle = useCallback(() => {
+    // Hotkey chat is view-only in the main window; press the global hotkey to talk.
+    if (activeChat?.is_hotkey) return;
     const now = Date.now();
     if (now - lastToggleMs.current < 600) return;
     lastToggleMs.current = now;
@@ -522,7 +503,7 @@ export function AgentTab() {
       }
       recorder.reset();
     }
-  }, [activeChatId, handleStop, patchTurnInChat, recorder]);
+  }, [activeChat, activeChatId, handleStop, patchTurnInChat, recorder]);
 
   const orbState = orbError ? "error" : recorder.state;
   const sidebarVisible = sidebarPinned || sidebarPeek;
@@ -553,13 +534,14 @@ export function AgentTab() {
     });
   }, [displayTurns]);
 
-  // Proactive inbox chat always pinned first; remaining chats sorted by updated_at
+  // Proactive inbox + hotkey chats pinned first; remaining chats sorted by updated_at
   const chatsSorted = useMemo(() => {
     const inbox = chats.filter((c) => c.is_proactive_inbox);
+    const hotkey = chats.filter((c) => c.is_hotkey);
     const rest = chats
-      .filter((c) => !c.is_proactive_inbox)
+      .filter((c) => !c.is_proactive_inbox && !c.is_hotkey)
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-    return [...inbox, ...rest];
+    return [...inbox, ...hotkey, ...rest];
   }, [chats]);
 
   if (loading) return <TabLoading />;

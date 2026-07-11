@@ -66,6 +66,17 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+/** Upsert turns by id: replace matching in place, append unknown ids after existing. */
+function upsertTurnsById(existing: AgentTurn[], incoming: AgentTurn[]): AgentTurn[] {
+  const merged = existing.slice();
+  for (const turn of incoming) {
+    const idx = merged.findIndex((t) => t.id === turn.id);
+    if (idx !== -1) merged[idx] = turn;
+    else merged.push(turn);
+  }
+  return merged;
+}
+
 interface ProviderProps {
   userId: string;
   children: React.ReactNode;
@@ -91,6 +102,7 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
     try { return localStorage.getItem("recall_proactive_unread") === "1"; } catch { return false; }
   });
   const proactiveChatIdRef = useRef<string | null>(null);
+  const hotkeyChatIdRef = useRef<string | null>(null);
 
   const chatsRef = useRef<AgentChat[]>([]);
   /** Chats the user explicitly renamed in this app session — do not overwrite with auto titles. */
@@ -178,7 +190,8 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
 
     for (const chatId of dirtyIds) {
       const chat = chatsRef.current.find((c) => c.id === chatId);
-      if (!chat || chat.archived_at) {
+      if (!chat || chat.archived_at || chat.is_hotkey) {
+        // The Hotkey chat is written solely by the orb window; main only mirrors it.
         dirtyIdsRef.current.delete(chatId);
         continue;
       }
@@ -247,6 +260,52 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
   const patchTurnInChat = useCallback((chatId: string, turnId: string, patch: Partial<AgentTurn>) => {
     replaceChatTurns(chatId, (prev) => prev.map((t) => (t.id === turnId ? { ...t, ...patch } : t)));
   }, [replaceChatTurns]);
+
+  // ── Hotkey chat live mirror ────────────────────────────────────────────────
+  // The orb window streams hotkey turns here via Tauri events. Main only mirrors
+  // them in memory (never markDirty / never persists — the orb is the sole writer).
+
+  /** Merge the orb's turn snapshot into the Hotkey chat, creating it if it isn't loaded yet. */
+  const mirrorHotkeyTurns = useCallback((chatId: string, turns: AgentTurn[]) => {
+    hotkeyChatIdRef.current = chatId;
+    setChats((prev) => {
+      const existing = prev.find((c) => c.id === chatId);
+      const ts = nowIso();
+      if (!existing) {
+        // Update landed before the row insert / boot fetch — seed a minimal chat.
+        const chat: AgentChat = {
+          id: chatId, user_id: userId, agent_session_id: chatId, title: "Hotkey",
+          turns, last_capture: null, archived_at: null, created_at: ts, updated_at: ts, is_hotkey: true,
+        };
+        return [chat, ...prev];
+      }
+      return prev.map((c) =>
+        c.id === chatId ? { ...c, turns: upsertTurnsById(c.turns, turns), updated_at: ts, is_hotkey: true } : c,
+      );
+    });
+  }, [userId]);
+
+  /** Adopt the authoritative row from the orb (hotkey-start) or the DB (boot/refetch). */
+  const applyHotkeyChatRow = useCallback((chat: AgentChat) => {
+    hotkeyChatIdRef.current = chat.id;
+    setChats((prev) => {
+      const existing = prev.find((c) => c.id === chat.id);
+      if (!existing) return [chat, ...prev];
+      // Keep authoritative metadata + DB history, preserve any live-only turns
+      // (an in-flight pair not yet in this row) appended after it.
+      const rowIds = new Set(chat.turns.map((t) => t.id));
+      const liveOnly = existing.turns.filter((t) => !rowIds.has(t.id));
+      return prev.map((c) => (c.id === chat.id ? { ...chat, turns: [...chat.turns, ...liveOnly] } : c));
+    });
+  }, []);
+
+  const refetchHotkeyChat = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("agent_chats").select("*")
+      .eq("user_id", userId).eq("is_hotkey", true).limit(1);
+    if (error || !data || data.length === 0) return;
+    applyHotkeyChatRow(normalizeStoredAgentChat(data[0] as Record<string, unknown>));
+  }, [applyHotkeyChatRow, userId]);
 
   const archiveChat = useCallback(async (chatId: string) => {
     const ts = nowIso();
@@ -520,6 +579,34 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
     return cancel;
   }, [isMainForeground, replaceChatTurns, requestOrbPlayback, userId]);
 
+  // Hotkey chat: live-mirror the orb's Tauri events. (Initial DB load happens at the
+  // end of boot() below, sequenced after the page-1 replace so it isn't clobbered.)
+  useEffect(() => {
+    let receivedUpdate = false;
+
+    const unlistenStart = listen<{ chat: Record<string, unknown> }>("recall:hotkey-start", (e) => {
+      receivedUpdate = true;
+      applyHotkeyChatRow(normalizeStoredAgentChat(e.payload.chat));
+    });
+    const unlistenUpdate = listen<{ chatId: string; turns: AgentTurn[] }>("recall:hotkey-update", (e) => {
+      receivedUpdate = true;
+      mirrorHotkeyTurns(e.payload.chatId, e.payload.turns);
+    });
+
+    // Ask the orb for its latest pair (covers opening the app mid-turn). If nothing
+    // answers within a short window, fall back to a DB re-fetch (catchup guard).
+    void emit("recall:hotkey-catchup");
+    const fallback = window.setTimeout(() => {
+      if (!receivedUpdate) void refetchHotkeyChat();
+    }, 1500);
+
+    return () => {
+      window.clearTimeout(fallback);
+      unlistenStart.then((f) => f());
+      unlistenUpdate.then((f) => f());
+    };
+  }, [applyHotkeyChatRow, mirrorHotkeyTurns, refetchHotkeyChat]);
+
   // Initial load and legacy migration.
   useEffect(() => {
     let cancelled = false;
@@ -562,12 +649,15 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
       const last = normalized.length > 0 ? normalized[normalized.length - 1] : undefined;
       setCursor(last ? { updated_at: last.updated_at, id: last.id } : null);
       setLoading(false);
+      // Load the Hotkey chat after the page-1 replace so it isn't clobbered; merges
+      // in if it wasn't already in page-1 (functional update preserves live turns).
+      void refetchHotkeyChat();
     }
     void boot();
     return () => {
       cancelled = true;
     };
-  }, [createChat, userId]);
+  }, [createChat, refetchHotkeyChat, userId]);
 
   // Primary close flush.
   useEffect(() => {

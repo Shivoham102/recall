@@ -3,10 +3,12 @@ import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, Window } from "@tauri-apps/api/window";
 import { useRecorder } from "../hooks/useRecorder";
-import { captureStream, playAudio, stopCurrentAudio, getOrCreateSessionId } from "../services/api";
+import { captureStream, playAudio, stopCurrentAudio, getOrCreateSessionId, ensureHotkeyChat, persistHotkeyChat, StreamEvent } from "../services/api";
 import { StreamingAudioPlayer } from "../services/audioPlayer";
 import { scheduleReminder } from "../services/reminderScheduler";
 import { applyItemUpdatedTimer } from "../services/itemUpdatedTimer";
+import { AgentTurn } from "../types/agentTurn";
+import { CapturePair, reduceCapturePair } from "../utils/captureTurnReducer";
 import { Orb } from "./Orb/OrbCanvas";
 
 const HOTKEY = "Ctrl+Shift+Space";
@@ -45,6 +47,157 @@ export function OrbWindow() {
   const currentFinalPlayerRef = useRef<StreamingAudioPlayer | null>(null);
   const requestGenRef = useRef(0);
 
+  // ── Hotkey chat producer ───────────────────────────────────────────────────
+  // The orb is the sole writer of the single dedicated "Hotkey" chat: it reduces
+  // each capture into a turn pair, emits live Tauri updates for the main window to
+  // mirror, and persists the running turns to Supabase. hotkeyChatRef/turnsRef live
+  // for the whole window session; the pair refs are per-turn.
+  const hotkeyChatRef = useRef<{ id: string; user_id: string; agent_session_id: string } | null>(null);
+  const hotkeyTurnsRef = useRef<AgentTurn[]>([]);
+  const hotkeyPairRef = useRef<CapturePair | null>(null);
+  const lastHotkeyPairRef = useRef<CapturePair | null>(null); // survives finalize → backs catchup
+  const hotkeyPersistTimer = useRef<number | null>(null);
+  const hotkeyEmitTimer = useRef<number | null>(null);
+  const hotkeyEmitDirty = useRef(false);
+
+  const flushHotkeyPersist = useCallback(async () => {
+    if (hotkeyPersistTimer.current !== null) {
+      window.clearTimeout(hotkeyPersistTimer.current);
+      hotkeyPersistTimer.current = null;
+    }
+    const chat = hotkeyChatRef.current;
+    if (!chat) return;
+    await persistHotkeyChat({ ...chat, turns: hotkeyTurnsRef.current });
+  }, []);
+
+  const scheduleHotkeyPersist = useCallback(() => {
+    if (hotkeyPersistTimer.current !== null) return;
+    hotkeyPersistTimer.current = window.setTimeout(() => {
+      hotkeyPersistTimer.current = null;
+      void flushHotkeyPersist();
+    }, 600);
+  }, [flushHotkeyPersist]);
+
+  const emitHotkeyPair = useCallback(() => {
+    const chat = hotkeyChatRef.current;
+    const pair = hotkeyPairRef.current;
+    if (!chat || !pair) return;
+    void emit("recall:hotkey-update", { chatId: chat.id, turns: [pair.user, pair.assistant] });
+  }, []);
+
+  // Emit the current pair. Tokens coalesce to ~100ms; structural events go immediately.
+  const pushHotkeyEmit = useCallback((immediate: boolean) => {
+    if (immediate) {
+      hotkeyEmitDirty.current = false;
+      if (hotkeyEmitTimer.current !== null) { window.clearTimeout(hotkeyEmitTimer.current); hotkeyEmitTimer.current = null; }
+      emitHotkeyPair();
+      return;
+    }
+    if (hotkeyEmitTimer.current !== null) { hotkeyEmitDirty.current = true; return; }
+    emitHotkeyPair();
+    hotkeyEmitTimer.current = window.setTimeout(() => {
+      hotkeyEmitTimer.current = null;
+      if (hotkeyEmitDirty.current) { hotkeyEmitDirty.current = false; emitHotkeyPair(); }
+    }, 100);
+  }, [emitHotkeyPair]);
+
+  // Write the current pair back into the running turns array (replace the two by id).
+  const syncHotkeyTurns = useCallback(() => {
+    const pair = hotkeyPairRef.current;
+    if (!pair) return;
+    hotkeyTurnsRef.current = hotkeyTurnsRef.current.map((t) =>
+      t.id === pair.user.id ? pair.user : t.id === pair.assistant.id ? pair.assistant : t,
+    );
+  }, []);
+
+  // Begin a fresh hotkey turn pair. Ensures the chat (lazily, once per window session)
+  // and emits the full row so main can insert it if it hasn't loaded the chat yet.
+  // Returns false when logged out / persistence unavailable.
+  const startHotkeyTurn = useCallback(async (): Promise<boolean> => {
+    hotkeyPairRef.current = null;
+    try {
+      if (!hotkeyChatRef.current) {
+        const ensured = await ensureHotkeyChat(sessionId);
+        if (!ensured) return false;
+        hotkeyChatRef.current = { id: ensured.id, user_id: ensured.user_id, agent_session_id: ensured.agent_session_id };
+        hotkeyTurnsRef.current = [...ensured.turns];
+      }
+      const chat = hotkeyChatRef.current;
+      const pair: CapturePair = {
+        user: { id: crypto.randomUUID(), role: "user", text: "", pending: true },
+        assistant: { id: crypto.randomUUID(), role: "assistant", text: "", steps: [], pending: true },
+      };
+      hotkeyPairRef.current = pair;
+      lastHotkeyPairRef.current = pair;
+      hotkeyTurnsRef.current = [...hotkeyTurnsRef.current, pair.user, pair.assistant];
+      const ts = new Date().toISOString();
+      void emit("recall:hotkey-start", {
+        chat: {
+          id: chat.id,
+          user_id: chat.user_id,
+          agent_session_id: chat.agent_session_id,
+          title: "Hotkey",
+          turns: hotkeyTurnsRef.current,
+          last_capture: null,
+          archived_at: null,
+          created_at: ts,
+          updated_at: ts,
+          is_hotkey: true,
+        },
+      });
+      scheduleHotkeyPersist();
+      return true;
+    } catch (e) {
+      console.warn("[hotkey] start failed:", e);
+      return false;
+    }
+  }, [sessionId, scheduleHotkeyPersist]);
+
+  // Reduce one stream event into the current pair, then emit + persist.
+  const reduceHotkey = useCallback((event: StreamEvent) => {
+    const pair = hotkeyPairRef.current;
+    if (!pair || !hotkeyChatRef.current) return;
+    if (event.type === "done" || event.type === "error") {
+      const assistant: AgentTurn = {
+        ...pair.assistant,
+        pending: false,
+        ...(event.type === "error" ? { text: event.message } : {}),
+      };
+      const next = { ...pair, assistant };
+      hotkeyPairRef.current = next;
+      lastHotkeyPairRef.current = next;
+      syncHotkeyTurns();
+      pushHotkeyEmit(true);
+      void flushHotkeyPersist();
+      return;
+    }
+    const shape =
+      event.type === "transcript" || event.type === "token" || event.type === "tool_call" ||
+      event.type === "tool_result" || event.type === "spoken" || event.type === "metadata" || event.type === "stored";
+    if (!shape) return;
+    const next = reduceCapturePair(pair, event);
+    hotkeyPairRef.current = next;
+    lastHotkeyPairRef.current = next;
+    syncHotkeyTurns();
+    pushHotkeyEmit(event.type !== "token");
+    scheduleHotkeyPersist();
+  }, [syncHotkeyTurns, pushHotkeyEmit, scheduleHotkeyPersist, flushHotkeyPersist]);
+
+  // Barge-in cut the current turn: resolve it (drop "working...") and flush.
+  const finalizeHotkeyForBargeIn = useCallback(() => {
+    const pair = hotkeyPairRef.current;
+    const chat = hotkeyChatRef.current;
+    if (!pair || !chat) return;
+    const next = { ...pair, assistant: { ...pair.assistant, pending: false } };
+    hotkeyPairRef.current = null;
+    lastHotkeyPairRef.current = next;
+    hotkeyTurnsRef.current = hotkeyTurnsRef.current.map((t) =>
+      t.id === next.user.id ? next.user : t.id === next.assistant.id ? next.assistant : t,
+    );
+    void emit("recall:hotkey-update", { chatId: chat.id, turns: [next.user, next.assistant] });
+    void flushHotkeyPersist();
+  }, [flushHotkeyPersist]);
+
   const handleStop = useCallback(async () => {
     // Claim this request's generation. If a barge-in bumps requestGenRef, isCurrent()
     // goes false and every terminal action below is skipped so we don't stomp the
@@ -65,7 +218,13 @@ export function OrbWindow() {
       let finalPlayer: StreamingAudioPlayer | null = null;
       let hasFinalAudio = false;
 
+      // Begin the live Hotkey-chat turn (background; never blocks the audio path).
+      const hotkeyEnabled = await startHotkeyTurn();
+
       for await (const event of captureStream(blob, sessionId, abort.signal)) {
+        // Mirror the turn into the Hotkey chat. Gate on isCurrent() so a superseded
+        // (barged-in) loop can't bleed events into the new pair.
+        if (hotkeyEnabled && isCurrent()) reduceHotkey(event);
         if (event.type === "transcript") {
           transcript = event.text;
         } else if (event.type === "ack_audio") {
@@ -153,7 +312,7 @@ export function OrbWindow() {
         await appWindow.hide();
       }, 2000);
     }
-  }, [appWindow, recorder, sessionId]);
+  }, [appWindow, recorder, sessionId, startHotkeyTurn, reduceHotkey]);
 
   const handleToggle = useCallback(() => {
     const now = Date.now();
@@ -176,6 +335,7 @@ export function OrbWindow() {
       // Bumping the gen invalidates the old handleStop / proactive playback so they
       // won't reset or hide the orb out from under the new recording.
       requestGenRef.current++;
+      finalizeHotkeyForBargeIn();                // resolve the interrupted Hotkey turn
       currentStreamAbortRef.current?.abort();   // → backend GeneratorExit → cancels tts_task
       currentFinalPlayerRef.current?.abort();   // stop streaming response audio
       currentAckPlayerRef.current?.abort();     // stop ack audio
@@ -184,7 +344,7 @@ export function OrbWindow() {
       appWindow.show().catch(() => {});
       recorder.start().catch(() => {});
     }
-  }, [appWindow, handleStop, recorder]);
+  }, [appWindow, handleStop, recorder, finalizeHotkeyForBargeIn]);
 
   useEffect(() => {
     handleToggleRef.current = handleToggle;
@@ -197,6 +357,17 @@ export function OrbWindow() {
     };
     setup().catch(() => {});
     return () => { unregister(HOTKEY).catch(() => {}); };
+  }, []);
+
+  // Main window opened mid-turn (or just after) and asked for the latest state:
+  // re-send the last pair, whether it's still in flight or already finalized.
+  useEffect(() => {
+    const unlisten = listen("recall:hotkey-catchup", () => {
+      const pair = lastHotkeyPairRef.current;
+      const chat = hotkeyChatRef.current;
+      if (pair && chat) void emit("recall:hotkey-update", { chatId: chat.id, turns: [pair.user, pair.assistant] });
+    });
+    return () => { unlisten.then((f) => f()); };
   }, []);
 
   const playProactiveAudio = useCallback(async (b64: string): Promise<ProactivePlaybackStatus> => {

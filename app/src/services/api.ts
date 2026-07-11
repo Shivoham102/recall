@@ -2,6 +2,8 @@ import { getAuthHeader } from "../hooks/useAuth";
 import { getBase } from "./backend";
 import { supabase } from "./supabase";
 import * as audioLevel from "./audioLevel";
+import type { AgentChat } from "../types/agentTurn";
+import { normalizeStoredAgentChat } from "../utils/agentChatDisplay";
 
 export type StreamEvent =
   | { type: "transcript"; text: string }
@@ -623,6 +625,93 @@ export function getOrCreateSessionId(): string {
     localStorage.setItem("recall_session_id", id);
   }
   return id;
+}
+
+// ── Hotkey (speak-mode) chat persistence ─────────────────────────────────────
+// The orb window is the sole writer of the single dedicated "Hotkey" chat. It
+// resolves the user from its own auth session (the same one that authenticates
+// every capture), so no AgentChatsProvider / userId prop is needed in that window.
+
+const HOTKEY_CHAT_ID_KEY = "recall_hotkey_chat_id";
+
+async function sessionUserId(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user?.id ?? null;
+}
+
+/**
+ * Find or create the user's single hotkey chat and return it. Returns null when
+ * logged out (in which case no capture happens either, so there is nothing to persist).
+ */
+export async function ensureHotkeyChat(sessionId: string): Promise<AgentChat | null> {
+  const userId = await sessionUserId();
+  if (!userId) return null;
+
+  const { data, error } = await supabase
+    .from("agent_chats")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("is_hotkey", true)
+    .limit(1);
+  if (!error && data && data.length > 0) {
+    const chat = normalizeStoredAgentChat(data[0] as Record<string, unknown>);
+    try { localStorage.setItem(HOTKEY_CHAT_ID_KEY, chat.id); } catch { /* ignore */ }
+    return chat;
+  }
+
+  let cachedId: string | null = null;
+  try { cachedId = localStorage.getItem(HOTKEY_CHAT_ID_KEY); } catch { /* ignore */ }
+  const ts = new Date().toISOString();
+  const chat: AgentChat = {
+    id: cachedId ?? crypto.randomUUID(),
+    user_id: userId,
+    agent_session_id: sessionId,
+    title: "Hotkey",
+    turns: [],
+    last_capture: null,
+    archived_at: null,
+    created_at: ts,
+    updated_at: ts,
+    is_hotkey: true,
+  };
+  const { error: insErr } = await supabase.from("agent_chats").upsert(
+    {
+      id: chat.id,
+      user_id: chat.user_id,
+      agent_session_id: chat.agent_session_id,
+      title: chat.title,
+      turns: chat.turns,
+      is_hotkey: true,
+      created_at: ts,
+      updated_at: ts,
+    },
+    { onConflict: "id" },
+  );
+  if (insErr) {
+    console.warn("[hotkey] ensure chat failed:", insErr.message);
+    return null;
+  }
+  try { localStorage.setItem(HOTKEY_CHAT_ID_KEY, chat.id); } catch { /* ignore */ }
+  return chat;
+}
+
+/** Upsert the hotkey chat's turns. `is_hotkey` is set explicitly so it survives. */
+export async function persistHotkeyChat(
+  chat: Pick<AgentChat, "id" | "user_id" | "agent_session_id" | "turns">,
+): Promise<void> {
+  const { error } = await supabase.from("agent_chats").upsert(
+    {
+      id: chat.id,
+      user_id: chat.user_id,
+      agent_session_id: chat.agent_session_id,
+      title: "Hotkey",
+      turns: chat.turns,
+      is_hotkey: true,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "id" },
+  );
+  if (error) console.warn("[hotkey] persist failed:", error.message);
 }
 
 export async function storeGoogleTokens(input: {

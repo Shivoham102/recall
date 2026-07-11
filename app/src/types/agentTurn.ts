@@ -74,4 +74,6 @@ export interface AgentChat {
   created_at: string;
   updated_at: string;
   is_proactive_inbox?: boolean;
+  /** The single dedicated chat that live-mirrors hotkey (speak-mode) conversations. */
+  is_hotkey?: boolean;
 }

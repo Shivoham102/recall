@@ -118,6 +118,7 @@ export function normalizeStoredAgentChat(raw: Record<string, unknown>): AgentCha
     created_at: String(raw.created_at ?? nowIso()),
     updated_at: String(raw.updated_at ?? nowIso()),
     is_proactive_inbox: raw.is_proactive_inbox === true,
+    is_hotkey: raw.is_hotkey === true,
   };
 }
 
@@ -137,6 +138,11 @@ export function fallbackSidebarTitleFromTurns(turns: AgentTurn[]): string | null
   const full = firstUserMessageText(turns);
   if (!full) return null;
   return full.length > 48 ? `${full.slice(0, 45)}…` : full;
+}
+
+/** Distinguished chats (proactive inbox, hotkey) are pinned and can't be renamed/deleted. */
+export function isDistinguished(chat: Pick<AgentChat, "is_proactive_inbox" | "is_hotkey">): boolean {
+  return chat.is_proactive_inbox === true || chat.is_hotkey === true;
 }
 
 export function sidebarDisplayTitle(chat: Pick<AgentChat, "title" | "turns">): string {

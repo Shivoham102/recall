@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentChat } from "../../types/agentTurn";
-import { chatRenameInitialDraft, sidebarDisplayTitle } from "../../utils/agentChatDisplay";
+import { chatRenameInitialDraft, isDistinguished, sidebarDisplayTitle } from "../../utils/agentChatDisplay";
 
 interface Props {
   chats: AgentChat[];
@@ -180,6 +180,7 @@ export function AgentChatSidebar({
               chat.id === activeChatId ? "agent-chat-row--active" : "",
               menuOpenId === chat.id ? "agent-chat-row--menu-open" : "",
               chat.is_proactive_inbox ? "agent-chat-row--proactive" : "",
+              chat.is_hotkey ? "agent-chat-row--hotkey" : "",
             ].filter(Boolean).join(" ")}
           >
             {renamingId === chat.id ? (
@@ -210,7 +211,7 @@ export function AgentChatSidebar({
                   onClick={() => onSelectChat(chat.id)}
                 >
                   <div className="agent-chat-row__title">
-                    {chat.is_proactive_inbox ? "◈ " : ""}
+                    {chat.is_proactive_inbox ? "◈ " : chat.is_hotkey ? "⌨ " : ""}
                     {sidebarDisplayTitle(chat)}
                     {chat.is_proactive_inbox && proactiveUnread && (
                       <span className="agent-chat-row__unread" aria-label="New proactive updates" />
@@ -224,7 +225,7 @@ export function AgentChatSidebar({
                   className="agent-chat-row__menu-anchor"
                   ref={menuOpenId === chat.id ? menuAnchorRef : undefined}
                 >
-                  {!chat.is_proactive_inbox && (
+                  {!isDistinguished(chat) && (
                   <button
                     type="button"
                     className="agent-chat-row__kebab"
@@ -240,7 +241,7 @@ export function AgentChatSidebar({
                   )}
                   {menuOpenId === chat.id && (
                     <div className="agent-chat-menu" role="menu">
-                      {!chat.is_proactive_inbox && (
+                      {!isDistinguished(chat) && (
                         <button
                           type="button"
                           className="agent-chat-menu__item"
@@ -251,7 +252,7 @@ export function AgentChatSidebar({
                           <span>Rename</span>
                         </button>
                       )}
-                      {!chat.is_proactive_inbox && (
+                      {!isDistinguished(chat) && (
                         <button
                           type="button"
                           className="agent-chat-menu__item agent-chat-menu__item--danger"
