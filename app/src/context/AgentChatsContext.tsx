@@ -483,14 +483,18 @@ export function AgentChatsProvider({ userId, children }: ProviderProps) {
         replaceChatTurns(chatId, (prev) =>
           prev.some((t) => t.id === event.id) ? prev : [...prev, newTurn],
         );
-        // Log every proactive delivery (all job types) to the notification center,
-        // whether it ends up spoken or carded. Deduped by job id.
-        addNotification({
-          id: event.id,
-          kind: event.job_type,
-          message: proactiveLabel(event.job_type, event.result),
-          ts: event.timestamp,
-        });
+        // Log proactive deliveries to the notification center, whether spoken or
+        // carded. Deduped by job id. follow_up_draft is excluded: it always runs
+        // shortly before morning_brief and its cards surface in that same feed, so
+        // a separate bell entry is redundant.
+        if (event.job_type !== "follow_up_draft") {
+          addNotification({
+            id: event.id,
+            kind: event.job_type,
+            message: proactiveLabel(event.job_type, event.result),
+            ts: event.timestamp,
+          });
+        }
         if (PROACTIVE_UNREAD_TYPES.has(event.job_type)) {
           setProactiveUnread(true);
           try { localStorage.setItem("recall_proactive_unread", "1"); } catch { /* ignore */ }
