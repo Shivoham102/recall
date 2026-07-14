@@ -364,8 +364,13 @@ CREATE TABLE IF NOT EXISTS user_behavior_patterns (
 -- Actionable proactive suggestions surfaced to the user (accept/dismiss).
 -- kind: 'recurring_reminder' | 'neglected_goal'
 -- status: 'pending' | 'accepted' | 'dismissed'
--- Re-arm logic (in pattern_learn): dismissed rows can return to pending after a cooldown;
--- accepted rows are never re-suggested. dedupe_key = normalized content / 'goal:<id>'.
+-- Re-arm logic (in pattern_learn / goal_neglect): dismissed rows can return to pending
+-- after a cooldown; accepted rows are never re-suggested for the SAME dedupe_key.
+-- dedupe_key = normalized content (recurring_reminder) / 'goal:<id>:<yyyy-mm-dd>' (neglected_goal).
+-- neglected_goal uses a date-scoped key so each detection cycle gets its own row —
+-- an old accepted row just becomes irrelevant next cycle instead of blocking it forever.
+-- recurring_reminder keeps a permanent key on purpose: accepting it converts the habit
+-- into an actual recurring reminder, so it should never be re-suggested again.
 CREATE TABLE IF NOT EXISTS agent_suggestions (
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id     text        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -385,8 +390,10 @@ CREATE INDEX IF NOT EXISTS agent_suggestions_user_pending_idx
 
 -- ── User goals (aspirations) ──────────────────────────────────────────────────
 -- Captured "I should X more" intentions. Neglect detection surfaces a suggestion
--- when no matching recall_item appears within the cadence window.
--- cadence_hint: 'daily' | 'weekly' | 'monthly'  → neglect windows 2d / 9d / 35d.
+-- when no matching recall_item appears within the current re-check interval.
+-- cadence_hint: 'daily' | 'weekly' | 'monthly' → bootstrap/seed defaults 2d / 9d / 35d
+-- for goal_nudge_arms below; the actual re-check interval is adaptive per user (see
+-- current_interval_days), not a fixed window.
 CREATE TABLE IF NOT EXISTS user_goals (
   id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id         text        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -401,6 +408,44 @@ CREATE TABLE IF NOT EXISTS user_goals (
 
 CREATE INDEX IF NOT EXISTS user_goals_user_active_idx
   ON user_goals (user_id, status);
+
+-- Adaptive re-check cadence (Thompson Sampling bandit, see goal_nudge_arms below).
+-- current_interval_days: interval currently in effect, resampled every due cycle.
+--   NULL = never sampled yet, falls back to the cadence_hint bootstrap default above.
+-- pending_arm_days / pending_suggestion_id: the arm + suggestion this goal is
+--   waiting to hear back on, credited to goal_nudge_arms on the NEXT due cycle.
+-- Added via ALTER, not inline on the CREATE TABLE above — user_goals already
+-- existed on deployed projects, and CREATE TABLE IF NOT EXISTS is a full no-op
+-- (including any new inline columns) once the table is already present.
+ALTER TABLE user_goals
+  ADD COLUMN IF NOT EXISTS current_interval_days int,
+  ADD COLUMN IF NOT EXISTS pending_arm_days       int,
+  ADD COLUMN IF NOT EXISTS pending_suggestion_id  uuid REFERENCES agent_suggestions(id) ON DELETE SET NULL;
+
+-- ── Goal nudge arms (Thompson Sampling for adaptive neglect-check cadence) ────
+-- Pooled per (user_id, cadence_hint) — NOT per individual goal — because one goal
+-- yields at most one feedback event per multi-day/week cycle, far too sparse to
+-- ever converge. Pooling across a user's goals sharing a cadence tier gives more
+-- signal per arm while still personalizing per user. alpha/beta are Beta-Bernoulli
+-- parameters, updated by detect_neglected_goals (proactive/jobs/goal_neglect.py).
+-- Reward = whether the suggestion produced while this interval was in effect was
+-- later ACCEPTED (alpha+=1) vs dismissed/left un-actioned (beta+=1) — deliberately
+-- NOT "was a semantic match found in the window," because that measurement grows
+-- mechanically with window size and would bias the bandit toward the longest arm
+-- regardless of the user's actual behavior.
+CREATE TABLE IF NOT EXISTS goal_nudge_arms (
+  id             uuid             PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id        text             NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  cadence_hint   text             NOT NULL CHECK (cadence_hint IN ('daily', 'weekly', 'monthly')),
+  interval_days  int              NOT NULL,
+  alpha          double precision NOT NULL DEFAULT 1.0,
+  beta           double precision NOT NULL DEFAULT 1.0,
+  created_at     timestamptz      NOT NULL DEFAULT now(),
+  UNIQUE (user_id, cadence_hint, interval_days)
+);
+
+CREATE INDEX IF NOT EXISTS goal_nudge_arms_user_cadence_idx
+  ON goal_nudge_arms (user_id, cadence_hint);
 
 -- ── Users: proactive preferences + checkin tracking ───────────────────────────
 ALTER TABLE users
@@ -505,7 +550,17 @@ CREATE POLICY proactive_jobs_select_own ON proactive_jobs
 -- Clients subscribe to their own proactive_jobs rows via Supabase Realtime
 -- (delivery transport — replaces the long-lived SSE stream). The select-own
 -- policy above scopes each subscription to its user.
-ALTER PUBLICATION supabase_realtime ADD TABLE proactive_jobs;
+-- ALTER PUBLICATION has no IF NOT EXISTS / ADD TABLE guard, so this is wrapped
+-- in an existence check to keep the whole file safely re-runnable.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'proactive_jobs'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE proactive_jobs;
+  END IF;
+END $$;
 
 ALTER TABLE follow_up_threads ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS follow_up_threads_select_own ON follow_up_threads;
@@ -531,4 +586,9 @@ CREATE POLICY agent_suggestions_update_own ON agent_suggestions
 ALTER TABLE user_goals ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS user_goals_select_own ON user_goals;
 CREATE POLICY user_goals_select_own ON user_goals
+  FOR SELECT USING ((auth.uid())::text = user_id);
+
+ALTER TABLE goal_nudge_arms ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS goal_nudge_arms_select_own ON goal_nudge_arms;
+CREATE POLICY goal_nudge_arms_select_own ON goal_nudge_arms
   FOR SELECT USING ((auth.uid())::text = user_id);

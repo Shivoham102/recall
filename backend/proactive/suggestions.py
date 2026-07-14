@@ -6,8 +6,16 @@ write through upsert_suggestion, which implements status-aware re-arm:
   - absent              → insert pending
   - dismissed > 60 days → reset to pending (habit persisted; nudge again)
   - dismissed < 60 days → leave dismissed (cooldown)
-  - accepted            → never re-suggest
+  - accepted            → never re-suggest for this SAME dedupe_key
   - pending             → refresh title/payload
+
+"Never re-suggest" is a true forever-skip only for callers that reuse a permanent
+dedupe_key (recurring_reminder: accepting it converts the habit into an actual
+recurring reminder, so it must never be re-asked). goal_neglect's neglected_goal
+suggestions use a date-scoped dedupe_key instead, so an old accepted row simply
+stops mattering once a new detection cycle writes a fresh key — the goal can be
+nudged again next cycle without touching this function's contract.
+
 All queries are admin-scoped; callers must pass an explicit user_id.
 """
 from datetime import datetime, timedelta, timezone
